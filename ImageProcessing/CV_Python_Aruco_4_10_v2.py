@@ -7,11 +7,13 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 import time # We will use this to ensure a steady processing rate
+import os
 
 
 # Load the camera calibration values
 # old version: camera_calibration = np.load(r'workdir/CalibrationGantry.npz')
-camera_calibration = np.load('ImageProcessing/workdir/CalibrationGantry.npz')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+camera_calibration = np.load(os.path.join(script_dir, 'CalibrationGantry.npz'))
 CM=camera_calibration['CM'] #camera matrix
 dist_coef=camera_calibration['dist_coef']# distortion coefficients from the camera
 
