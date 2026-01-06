@@ -1,41 +1,42 @@
 # vision_aruco.py
 """
-Aruco vision module designed to be *called by a GUI* (no cv2.imshow / no infinite loop).
+Vision module (no GUI, no UDP):
+- Opens camera
+- Detects ArUco markers
+- Optionally estimates pose (needs calibration)
+- Computes robot pose (x,y,yaw) and target (x,y) relative to a HOME marker
 
-Features:
-- Open camera
-- Detect ArUco markers
-- Optionally estimate pose if camera intrinsics are provided
-- Compute marker pose relative to a "home" marker (best for real-world coords)
-- Return an annotated frame + structured detection data
+Outputs exactly what your Simulink UDP packet needs: 5 values.
 
-Requires:
-- opencv-contrib-python (for cv2.aruco)
-- numpy
+Dependencies:
+  pip install numpy opencv-contrib-python
 """
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Optional, Tuple, List, Dict
 
 import cv2
 import numpy as np
 
 
 @dataclass
-class MarkerDetection:
-    marker_id: int
-    corners_px: np.ndarray  # shape (4,2)
-    center_px: Tuple[float, float]
-    rvec: Optional[np.ndarray] = None  # shape (3,1)
-    tvec: Optional[np.ndarray] = None  # shape (3,1)
-    # Pose relative to home marker (same units as tvec, usually meters or mm depending on marker_length)
-    rel_tvec: Optional[np.ndarray] = None  # shape (3,1)
-    rel_yaw_deg: Optional[float] = None
+class Pose2D:
+    x: float
+    y: float
+    yaw_deg: float
+    valid: bool
 
 
-def _rvec_tvec_to_T(rvec: np.ndarray, tvec: np.ndarray) -> np.ndarray:
-    """Convert Rodrigues rvec + tvec to 4x4 transform matrix."""
+@dataclass
+class XY:
+    x: float
+    y: float
+    valid: bool
+
+
+def _T_from_rvec_tvec(rvec: np.ndarray, tvec: np.ndarray) -> np.ndarray:
+    """Rodrigues rvec + tvec -> 4x4 transform."""
     R, _ = cv2.Rodrigues(rvec.reshape(3, 1))
     T = np.eye(4, dtype=np.float64)
     T[:3, :3] = R
@@ -43,14 +44,9 @@ def _rvec_tvec_to_T(rvec: np.ndarray, tvec: np.ndarray) -> np.ndarray:
     return T
 
 
-def _yaw_from_R(R: np.ndarray) -> float:
-    """
-    Extract yaw from rotation matrix.
-    Convention depends on your coordinate system; this gives a reasonable 'heading-like' yaw.
-    """
-    # yaw around Z if Z is up; many camera frames differ, so treat as indicative.
-    yaw = np.degrees(np.arctan2(R[1, 0], R[0, 0]))
-    return float(yaw)
+def _yaw_deg_from_R(R: np.ndarray) -> float:
+    # A reasonable yaw extraction. Depending on your axis conventions, you may adjust.
+    return float(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
 
 
 class ArucoTracker:
@@ -60,8 +56,8 @@ class ArucoTracker:
         width: int = 1280,
         height: int = 720,
         aruco_dict_name: str = "DICT_4X4_50",
+        marker_length: float = 0.05,
         home_id: int = 0,
-        marker_length: float = 0.05,  # meters (e.g., 0.05 = 5cm). Must match your printed marker size.
         camera_matrix: Optional[np.ndarray] = None,
         dist_coeffs: Optional[np.ndarray] = None,
     ):
@@ -69,24 +65,20 @@ class ArucoTracker:
         self.width = width
         self.height = height
 
-        self.home_id = home_id
         self.marker_length = marker_length
+        self.home_id = home_id
 
         self.camera_matrix = camera_matrix
         self.dist_coeffs = dist_coeffs
 
         self.cap: Optional[cv2.VideoCapture] = None
 
-        self.aruco_dict = self._get_aruco_dict(aruco_dict_name)
+        if not hasattr(cv2.aruco, aruco_dict_name):
+            raise ValueError(f"Unknown ArUco dictionary: {aruco_dict_name}")
+
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, aruco_dict_name))
         self.detector_params = cv2.aruco.DetectorParameters()
-
-        # Newer OpenCV has ArucoDetector
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.detector_params)
-
-    def _get_aruco_dict(self, name: str):
-        if not hasattr(cv2.aruco, name):
-            raise ValueError(f"Unknown ArUco dict name: {name}")
-        return cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, name))
 
     def start(self) -> None:
         if self.cap is not None:
@@ -106,107 +98,106 @@ class ArucoTracker:
     def is_running(self) -> bool:
         return self.cap is not None
 
-    def read(self) -> Tuple[np.ndarray, List[MarkerDetection]]:
-        """
-        Returns:
-          frame_bgr: annotated frame
-          detections: list of MarkerDetection objects
-        """
+    @staticmethod
+    def load_calibration_npz(npz_path: str) -> Tuple[np.ndarray, np.ndarray]:
+        data = np.load(npz_path)
+        return data["camera_matrix"], data["dist_coeffs"]
+
+    def read_frame(self) -> np.ndarray:
         if self.cap is None:
             raise RuntimeError("Camera not started. Call start() first.")
-
         ok, frame = self.cap.read()
         if not ok or frame is None:
             raise RuntimeError("Failed to read frame from camera.")
+        return frame
 
-        detections = self._detect_and_annotate(frame)
-        return frame, detections
-
-    def _detect_and_annotate(self, frame_bgr: np.ndarray) -> List[MarkerDetection]:
+    def detect(self, frame_bgr: np.ndarray) -> Tuple[np.ndarray, Dict[int, Tuple[np.ndarray, np.ndarray]]]:
+        """
+        Returns:
+          annotated_frame_bgr
+          poses_cam: dict {id: (rvec(3,1), tvec(3,1))} only if calibration provided
+        """
+        annotated = frame_bgr.copy()
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
 
-        corners, ids, _rejected = self.detector.detectMarkers(gray)
+        corners, ids, _rej = self.detector.detectMarkers(gray)
+        poses_cam: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}
 
-        detections: List[MarkerDetection] = []
         if ids is None or len(ids) == 0:
-            return detections
+            return annotated, poses_cam
 
         ids_flat = ids.flatten().astype(int)
+        cv2.aruco.drawDetectedMarkers(annotated, corners, ids)
 
-        # Draw detected marker borders
-        cv2.aruco.drawDetectedMarkers(frame_bgr, corners, ids)
-
-        # Prepare pose estimation if intrinsics exist
         have_pose = self.camera_matrix is not None and self.dist_coeffs is not None
-
-        rvecs = tvecs = None
         if have_pose:
-            rvecs, tvecs, _obj = cv2.aruco.estimatePoseSingleMarkers(
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
                 corners, self.marker_length, self.camera_matrix, self.dist_coeffs
             )
+            for i, mid in enumerate(ids_flat):
+                rvec = rvecs[i].reshape(3, 1)
+                tvec = tvecs[i].reshape(3, 1)
+                poses_cam[int(mid)] = (rvec, tvec)
 
-        # Build detections
-        for i, marker_id in enumerate(ids_flat):
-            c = corners[i].reshape(4, 2)
-            center = (float(np.mean(c[:, 0])), float(np.mean(c[:, 1])))
-
-            det = MarkerDetection(
-                marker_id=marker_id,
-                corners_px=c,
-                center_px=center,
-            )
-
-            if have_pose and rvecs is not None and tvecs is not None:
-                det.rvec = rvecs[i].reshape(3, 1)
-                det.tvec = tvecs[i].reshape(3, 1)
-                # draw axis
+                # draw axes
                 cv2.drawFrameAxes(
-                    frame_bgr,
+                    annotated,
                     self.camera_matrix,
                     self.dist_coeffs,
-                    det.rvec,
-                    det.tvec,
+                    rvec,
+                    tvec,
                     self.marker_length * 0.5,
                 )
 
-            detections.append(det)
+        return annotated, poses_cam
 
-        # Compute relative poses wrt home marker if possible
-        if have_pose:
-            home = next((d for d in detections if d.marker_id == self.home_id and d.rvec is not None), None)
-            if home is not None:
-                T_cam_home = _rvec_tvec_to_T(home.rvec, home.tvec)
-                T_home_cam = np.linalg.inv(T_cam_home)
-
-                for d in detections:
-                    if d.rvec is None or d.tvec is None:
-                        continue
-                    T_cam_d = _rvec_tvec_to_T(d.rvec, d.tvec)
-                    T_home_d = T_home_cam @ T_cam_d
-                    d.rel_tvec = T_home_d[:3, 3].reshape(3, 1)
-                    d.rel_yaw_deg = _yaw_from_R(T_home_d[:3, :3])
-
-                    # annotate relative position on image (for quick sanity)
-                    txt = f"ID {d.marker_id} rel x={d.rel_tvec[0,0]:.3f} y={d.rel_tvec[1,0]:.3f} yaw={d.rel_yaw_deg:.1f}"
-                    cv2.putText(
-                        frame_bgr,
-                        txt,
-                        (int(d.center_px[0]) + 10, int(d.center_px[1]) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 255, 0),
-                        1,
-                        cv2.LINE_AA,
-                    )
-
-        return detections
-
-    @staticmethod
-    def load_calibration_npz(npz_path: str) -> Tuple[np.ndarray, np.ndarray]:
+    def compute_packet(
+        self,
+        poses_cam: Dict[int, Tuple[np.ndarray, np.ndarray]],
+        robot_id: int,
+        target_id: int,
+    ) -> Tuple[Pose2D, XY]:
         """
-        Load camera intrinsics from a .npz containing:
-          - camera_matrix
-          - dist_coeffs
+        Compute robot pose and target position relative to home marker.
+        Requires calibration AND home marker visible.
+
+        Returns:
+          robot_pose: (x,y,yaw_deg,valid)
+          target_xy:  (x,y,valid)
+
+        Units:
+          Same as marker_length (meters if marker_length is meters).
         """
-        data = np.load(npz_path)
-        return data["camera_matrix"], data["dist_coeffs"]
+        have_pose = len(poses_cam) > 0
+        if not have_pose:
+            return Pose2D(np.nan, np.nan, np.nan, False), XY(np.nan, np.nan, False)
+
+        if self.home_id not in poses_cam:
+            return Pose2D(np.nan, np.nan, np.nan, False), XY(np.nan, np.nan, False)
+
+        rvec_h, tvec_h = poses_cam[self.home_id]
+        T_cam_home = _T_from_rvec_tvec(rvec_h, tvec_h)
+        T_home_cam = np.linalg.inv(T_cam_home)
+
+        # Robot
+        if robot_id in poses_cam:
+            rvec_r, tvec_r = poses_cam[robot_id]
+            T_cam_r = _T_from_rvec_tvec(rvec_r, tvec_r)
+            T_home_r = T_home_cam @ T_cam_r
+            rx, ry, _rz = T_home_r[:3, 3].tolist()
+            yaw = _yaw_deg_from_R(T_home_r[:3, :3])
+            robot_pose = Pose2D(rx, ry, yaw, True)
+        else:
+            robot_pose = Pose2D(np.nan, np.nan, np.nan, False)
+
+        # Target
+        if target_id in poses_cam:
+            rvec_t, tvec_t = poses_cam[target_id]
+            T_cam_t = _T_from_rvec_tvec(rvec_t, tvec_t)
+            T_home_t = T_home_cam @ T_cam_t
+            tx, ty, _tz = T_home_t[:3, 3].tolist()
+            target_xy = XY(tx, ty, True)
+        else:
+            target_xy = XY(np.nan, np.nan, False)
+
+        return robot_pose, target_xy
