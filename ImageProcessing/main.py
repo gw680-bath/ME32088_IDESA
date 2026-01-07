@@ -6,20 +6,25 @@ Main orchestrator (glue):
 - Runs update loop: read camera -> detect -> compute 5 values -> send UDP -> update GUI
 - Sends UDP packet constantly while "Start" is active
 
+Why your current main shows no coordinates:
+- In your current main, CALIB_NPZ=None so pose estimation never runs.
+  That means poses_cam is empty and compute_packet() returns invalid, so your packet stays NaN.
+- Also, compute_packet() requires HOME_ID to be visible; if HOME_ID is wrong or not in view,
+  it will also return invalid (even if robot/target are visible).
+
+This patched version:
+- Auto-loads CalibrationGantry.npz (same format used in CV_Python_Aruco_4_10_v2.py: CM/dist_coef)
+- Falls back to CAMERA-frame coordinates if HOME marker isn't visible (for debugging)
+- Keeps the rest of your GUI/UDP structure the same
+
 UDP payload:
 - 5 x float32, little-endian, order:
   robot_x, robot_y, robot_yaw_deg, target_x, target_y
 = 20 bytes per packet
-
-Simulink tip:
-- UDP Receive as uint8[20]
-- Byte Unpack: 5x single, little-endian
-
-Dependencies:
-  pip install numpy pillow opencv-contrib-python
 """
 
 from __future__ import annotations
+import os
 import socket
 import struct
 import time
@@ -28,25 +33,34 @@ from tkinter import ttk, messagebox
 
 import numpy as np
 
-from vision_aruco import ArucoTracker
+# Use the patched vision module (supports CM/dist_coef keys + cam-frame fallback)
+from vision_aruco_patched import ArucoTracker
 from gui_mission_control import MissionControlGUI, ManualCmd
 
 
 # ======================
 # CONFIG (edit to match your setup)
 # ======================
-CAMERA_INDEX = 0
+# Your working CV script used camera index 1 for the external camera.
+CAMERA_INDEX = 1
 FRAME_W, FRAME_H = 1280, 720
 
 ARUCO_DICT = "DICT_4X4_50"
-MARKER_LENGTH_M = 0.05  # 5cm. Must match your printed marker size.
 
+# IMPORTANT:
+# - OpenCV returns tvecs in the same units as MARKER_LENGTH.
+# - Set this to your REAL marker size.
+MARKER_LENGTH_M = 0.04  # 4cm (matches your CV script's marker_size=40)
+
+# Choose IDs that actually exist in view.
+# From your screenshot you have ID 1 and ID 2 markers.
 HOME_ID = 0
-ROBOT_ID = 2
-TARGET_ID = 1
+ROBOT_ID = 3
+TARGET_ID = 1  # change to your "target marker" if different from home
 
-# Calibration .npz containing camera_matrix + dist_coeffs (recommended)
-CALIB_NPZ = None  # e.g. "calibration.npz"
+# Calibration .npz
+# If left as None, we auto-try to load "CalibrationGantry.npz" from this folder.
+CALIB_NPZ = None  # e.g. "CalibrationGantry.npz"
 
 # UDP to Simulink
 SIMULINK_IP = "127.0.0.1"  # change to Simulink PC IP
@@ -55,6 +69,10 @@ SEND_HZ = 30.0             # send rate while running
 
 # When markers are lost, keep sending last known values (usually better than NaNs for control)
 HOLD_LAST_ON_LOSS = True
+
+# If True: require HOME marker visible to produce valid coords (best for a stable world frame).
+# If False: show/send CAMERA-frame coords when HOME isn't visible (best for debugging).
+REQUIRE_HOME_MARKER = False
 
 
 class App:
@@ -65,13 +83,30 @@ class App:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_addr = (SIMULINK_IP, SIMULINK_PORT)
 
-        # Load calibration
+        # Load calibration (auto-detect like your working CV script)
         cam_mtx = dist = None
-        if CALIB_NPZ:
+        calib_path = CALIB_NPZ
+        if calib_path is None:
+            # try to find CalibrationGantry.npz beside this script
+            here = os.path.dirname(os.path.abspath(__file__))
+            candidate = os.path.join(here, "CalibrationGantry.npz")
+            if os.path.exists(candidate):
+                calib_path = candidate
+
+        if calib_path:
             try:
-                cam_mtx, dist = ArucoTracker.load_calibration_npz(CALIB_NPZ)
+                cam_mtx, dist = ArucoTracker.load_calibration_npz(calib_path)
             except Exception as e:
-                messagebox.showwarning("Calibration", f"Failed to load calibration: {e}\nContinuing without pose.")
+                messagebox.showwarning(
+                    "Calibration",
+                    f"Failed to load calibration from:\n{calib_path}\n\n{e}\n\nContinuing without pose (no tvecs).",
+                )
+        else:
+            messagebox.showwarning(
+                "Calibration",
+                "No calibration file found (CalibrationGantry.npz).\n"
+                "Pose estimation needs calibration; without it you will NOT get tvecs/coordinates.",
+            )
 
         # Vision
         self.tracker = ArucoTracker(
@@ -91,7 +126,6 @@ class App:
 
         self.last_frame_t = 0.0
         self.fps = 0.0
-
         self.last_send_t = 0.0
 
         # last known packet values
@@ -106,7 +140,6 @@ class App:
             on_manual_cmd=self.on_manual_cmd,
         )
 
-        # close handler
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     # ======================
@@ -124,7 +157,7 @@ class App:
 
         self.camera_active = True
         self.gui.set_status("Status: Camera active")
-        self.tick()  # start update loop
+        self.tick()
 
     def start(self):
         self.running = True
@@ -135,8 +168,7 @@ class App:
         self.gui.set_status("Status: STOPPED")
 
     def on_manual_cmd(self, cmd: ManualCmd):
-        # Placeholder: manual command path to Simulink or to a separate channel
-        # If you decide manual should override target tracking, you can change behavior here.
+        # Placeholder (you can route this to Simulink on a different UDP port if you want)
         pass
 
     # ======================
@@ -166,22 +198,29 @@ class App:
         self.gui.set_fps(self.fps)
 
         # Compute the 5-value packet
-        robot_pose, target_xy = self.tracker.compute_packet(poses_cam, robot_id=ROBOT_ID, target_id=TARGET_ID)
+        robot_pose, target_xy = self.tracker.compute_packet(
+            poses_cam,
+            robot_id=ROBOT_ID,
+            target_id=TARGET_ID,
+            require_home=REQUIRE_HOME_MARKER,
+        )
 
         if robot_pose.valid and target_xy.valid:
             packet = (robot_pose.x, robot_pose.y, robot_pose.yaw_deg, target_xy.x, target_xy.y)
             self.last_packet = packet
         else:
-            if not HOLD_LAST_ON_LOSS:
-                packet = (np.nan, np.nan, np.nan, np.nan, np.nan)
-                self.last_packet = packet
-            else:
-                packet = self.last_packet
+            packet = self.last_packet if HOLD_LAST_ON_LOSS else (np.nan, np.nan, np.nan, np.nan, np.nan)
+            self.last_packet = packet
 
         # GUI text
         rx, ry, ryaw, tx, ty = packet
-        self.gui.set_robot_text(f"Robot (rel HOME {HOME_ID}, ID {ROBOT_ID}): x={rx:.3f} y={ry:.3f} yaw={ryaw:.1f}°")
-        self.gui.set_target_text(f"Target (rel HOME {HOME_ID}, ID {TARGET_ID}): x={tx:.3f} y={ty:.3f}")
+        frame_name = robot_pose.frame if robot_pose.valid else ("home" if REQUIRE_HOME_MARKER else "cam/home")
+        self.gui.set_robot_text(
+            f"Robot (ID {ROBOT_ID}, frame={frame_name}): x={rx:.3f} y={ry:.3f} yaw={ryaw:.1f}°"
+        )
+        self.gui.set_target_text(
+            f"Target (ID {TARGET_ID}, frame={target_xy.frame}): x={tx:.3f} y={ty:.3f}"
+        )
 
         # Show video
         self.gui.set_frame(annotated)
