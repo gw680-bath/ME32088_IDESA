@@ -31,6 +31,8 @@ import os
 import time
 import math
 import argparse
+import struct
+import socket
 
 import cv2
 import cv2.aruco as aruco
@@ -44,6 +46,18 @@ try:
     GUI_AVAILABLE = True
 except Exception:
     GUI_AVAILABLE = False
+
+
+
+def send_udp_data(sock, udp_ip, udp_port, data_array):
+    """
+    Send a numpy array (e.g., matrix) as binary float32 little-endian via UDP.
+    Assumes data_array is a 1D or 2D numpy array of floats.
+    """
+    if not isinstance(data_array, np.ndarray):
+        data_array = np.array(data_array, dtype=np.float32)
+    packed_data = data_array.astype(np.float32).tobytes()
+    sock.sendto(packed_data, (udp_ip, udp_port))
 
 
 # --------------------------
@@ -123,11 +137,19 @@ def main():
     parser.add_argument("--target-id", type=int, default=3, help="Target ArUco ID")
     parser.add_argument("--print-hz", type=float, default=1.0, help="Terminal print rate (Hz)")
     parser.add_argument("--gui", action="store_true", help="Use Tkinter GUI (requires pillow)")
+    parser.add_argument("--udp-ip", type=str, default="127.0.0.1", help="UDP target IP address")
+    parser.add_argument("--udp-port", type=int, default=50001, help="UDP target port")
     args = parser.parse_args()
 
     if args.gui and not GUI_AVAILABLE:
         print("GUI requested but Tkinter/PIL not available. Install pillow or run without --gui.")
         return
+
+    # UDP setup
+    UDP_IP = args.udp_ip
+    UDP_PORT = args.udp_port
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    print(f"UDP target IP: {UDP_IP}, port: {UDP_PORT}")
 
     # Load calibration (same style as your working script)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -152,6 +174,8 @@ def main():
     if not cap.isOpened():
         raise RuntimeError(f"Could not open camera index {args.camera}")
 
+    print("Camera opened successfully. Starting vision loop... Press 'q' to quit.")
+
     # Timing
     print_period = 1.0 / max(args.print_hz, 1e-6)
     last_print_t = 0.0
@@ -161,14 +185,19 @@ def main():
     fps = 0.0
 
     # Keep last known readings (so you can still output if one frame misses)
-    last_robot = None  # (yaw, x, y)
-    last_target = None # (x, y)
+    last_robot = [0.0, 0.0, 0.0]  # yaw, x, y
+    last_target = [0.0, 0.0]      # x, y
+    robot_detected = False
+    target_detected = False
 
     # Optional GUI
     gui = SimpleVisionGUI() if args.gui else None
 
     def tick():
-        nonlocal last_print_t, last_frame_t, fps, last_robot, last_target
+        nonlocal last_print_t, last_frame_t, fps, last_robot, last_target, robot_detected, target_detected
+
+        robot_detected = False
+        target_detected = False
 
         ok, frame = cap.read()
         if not ok or frame is None:
@@ -214,21 +243,21 @@ def main():
 
                 if mid == args.robot_id:
                     yaw = yaw_deg_from_rvec(rvec)
-                    last_robot = (yaw, x, y)
-                    robot_found = True
+                    last_robot = [yaw, x, y]
+                    robot_detected = True
 
                 if mid == args.target_id:
-                    last_target = (x, y)
-                    target_found = True
+                    last_target = [x, y]
+                    target_detected = True
 
         # Build strings (either live, or “NOT DETECTED”)
-        if last_robot is not None:
+        if robot_detected:
             ryaw, rx, ry = last_robot
             robot_text = f"Robot (ID {args.robot_id}): yaw={ryaw:6.1f}°  x={rx:8.2f}  y={ry:8.2f}  [mm]"
         else:
             robot_text = f"Robot (ID {args.robot_id}): NOT DETECTED"
 
-        if last_target is not None:
+        if target_detected:
             tx, ty = last_target
             target_text = f"Target (ID {args.target_id}): x={tx:8.2f}  y={ty:8.2f}  [mm]"
         else:
@@ -241,14 +270,19 @@ def main():
 
         # Print once per second (or your chosen print rate)
         if (now - last_print_t) >= print_period:
+            # Send UDP data as a 1D array of 5 float32: [robot_x, robot_y, robot_yaw, target_x, target_y]
+            reordered_data = [last_robot[1], last_robot[2], last_robot[0]] + last_target
+            data_array = np.array(reordered_data, dtype=np.float32)
+            send_udp_data(sock, UDP_IP, UDP_PORT, data_array)
+
             # IMPORTANT: print exactly in the style you requested
-            if last_robot is not None:
+            if robot_detected:
                 ryaw, rx, ry = last_robot
                 print(f"Robots: angle={ryaw:.1f}, x={rx:.2f}, y={ry:.2f} (aruco {args.robot_id})")
             else:
                 print(f"Robots: NOT DETECTED (aruco {args.robot_id})")
 
-            if last_target is not None:
+            if target_detected:
                 tx, ty = last_target
                 print(f"Targets: x={tx:.2f}, y={ty:.2f} (aruco {args.target_id})")
             else:
