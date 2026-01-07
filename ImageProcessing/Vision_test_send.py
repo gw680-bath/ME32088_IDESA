@@ -31,6 +31,8 @@ import os
 import time
 import math
 import argparse
+import struct
+import socket
 
 import cv2
 import cv2.aruco as aruco
@@ -45,6 +47,18 @@ try:
 except Exception:
     GUI_AVAILABLE = False
 
+
+
+def send_udp_data(sock, udp_ip, udp_port, data_array):
+    """
+    Send a numpy array as a comma-separated string of numbers via UDP.
+    """
+    if not isinstance(data_array, np.ndarray):
+        data_array = np.array(data_array, dtype=np.float32)
+    # Convert to string: comma-separated floats
+    data_str = ",".join(f"{x:.6f}" for x in data_array.flatten())
+    packed_data = data_str.encode('utf-8')
+    sock.sendto(packed_data, (udp_ip, udp_port))
 
 
 # --------------------------
@@ -124,11 +138,19 @@ def main():
     parser.add_argument("--target-id", type=int, default=3, help="Target ArUco ID")
     parser.add_argument("--print-hz", type=float, default=1.0, help="Terminal print rate (Hz)")
     parser.add_argument("--gui", action="store_true", help="Use Tkinter GUI (requires pillow)")
+    parser.add_argument("--udp-ip", type=str, default="138.38.226.147", help="UDP target IP address")
+    parser.add_argument("--udp-port", type=int, default=50001, help="UDP target port")
     args = parser.parse_args()
 
     if args.gui and not GUI_AVAILABLE:
         print("GUI requested but Tkinter/PIL not available. Install pillow or run without --gui.")
         return
+
+    # UDP setup
+    UDP_IP = args.udp_ip
+    UDP_PORT = args.udp_port
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    print(f"UDP target IP: {UDP_IP}, port: {UDP_PORT}")
 
     # Load calibration (same style as your working script)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -249,6 +271,11 @@ def main():
 
         # Print once per second (or your chosen print rate)
         if (now - last_print_t) >= print_period:
+            # Send UDP data as a 1D array of 5 float32: [robot_x, robot_y, robot_yaw, target_x, target_y]
+            reordered_data = [last_robot[1], last_robot[2], last_robot[0]] + last_target
+            data_array = np.array(reordered_data, dtype=np.float32)
+            send_udp_data(sock, UDP_IP, UDP_PORT, data_array)
+
             # IMPORTANT: print exactly in the style you requested
             if robot_detected:
                 ryaw, rx, ry = last_robot
