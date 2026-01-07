@@ -51,8 +51,8 @@ except Exception:
 
 def send_udp_data(sock, udp_ip, udp_port, data_array):
     """
-    Send a numpy array (e.g., matrix) as binary float32 little-endian via UDP.
-    Assumes data_array is a 1D or 2D numpy array of floats.
+    Send a numpy array as binary float32 little-endian via UDP.
+    Assumes data_array is a 1D numpy array of floats.
     """
     if not isinstance(data_array, np.ndarray):
         data_array = np.array(data_array, dtype=np.float32)
@@ -137,7 +137,7 @@ def main():
     parser.add_argument("--target-id", type=int, default=3, help="Target ArUco ID")
     parser.add_argument("--print-hz", type=float, default=1.0, help="Terminal print rate (Hz)")
     parser.add_argument("--gui", action="store_true", help="Use Tkinter GUI (requires pillow)")
-    parser.add_argument("--udp-ip", type=str, default="127.0.0.1", help="UDP target IP address")
+    parser.add_argument("--udp-ip", type=str, default="138.38.226.147", help="UDP target IP address")
     parser.add_argument("--udp-port", type=int, default=50001, help="UDP target port")
     args = parser.parse_args()
 
