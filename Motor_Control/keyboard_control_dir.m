@@ -1,13 +1,10 @@
 function keyboard_control_dir()
-% GANTRY_KEYBOARD_CONTROL
 % Sends simple direction commands to the Raspberry Pi via UDP:
 %   +1 = forward, -1 = backward, 0 = stop
 % Use LEFT / RIGHT arrow keys, release to stop.
 
-    % ==== CONFIGURE THIS ====
-    piIP   = '169.254.1.107';   % <-- change to your Pi's IP address
-    piPort = 55001;            % <-- must match UDP Receive block in Simulink
-    % =========================
+    piIP   = '138.38.226.147';
+    piPort = 55001;
 
     % Create UDP object
     u = udpport("Datagram","IPV4");
@@ -25,7 +22,7 @@ function keyboard_control_dir()
                'CloseRequestFcn',@(src,event) closeFig(src,event,u,piIP,piPort));
 
     uicontrol('Style','text', ...
-              'String', sprintf('Use LEFT/RIGHT arrows to move.\nRelease to stop.\nClose window to exit.'), ...
+              'String', sprintf('Use RIGHT/LEFT arrows to move.\nRelease to stop.\nClose window to exit.'), ...
               'Units','normalized', ...
               'Position',[0.1 0.3 0.8 0.4], ...
               'FontSize',12);
