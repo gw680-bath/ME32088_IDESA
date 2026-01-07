@@ -34,7 +34,7 @@ cv2.moveWindow("Gray", 640, 100)
 cv2.moveWindow("Frame", 0, 100)
 # Start capturing video
 #(0) for default camera, (1) for external camera (prefered)
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 
 # Set the starting time
 start_time = time.time()
