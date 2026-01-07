@@ -11,9 +11,9 @@ import os
 
 
 # Load the camera calibration values
-# old version: camera_calibration = np.load(r'workdir/CalibrationGantry.npz')
+# old version: camera_calibration = np.load(r'workdir/Calibration.npz')
 script_dir = os.path.dirname(os.path.abspath(__file__))
-camera_calibration = np.load(os.path.join(script_dir, 'CalibrationGantry.npz'))
+camera_calibration = np.load(os.path.join(script_dir, 'workdir', 'Calibration.npz'))
 CM=camera_calibration['CM'] #camera matrix
 dist_coef=camera_calibration['dist_coef']# distortion coefficients from the camera
 
