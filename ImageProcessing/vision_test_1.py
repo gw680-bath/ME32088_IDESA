@@ -117,7 +117,7 @@ class SimpleVisionGUI:
 # --------------------------
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--camera", type=int, default=0, help="Camera index (try 0 or 1)")
+    parser.add_argument("--camera", type=int, default=1, help="Camera index (try 0 or 1)")
     parser.add_argument("--marker-size-mm", type=float, default=40.0, help="Marker size in mm (must match print)")
     parser.add_argument("--dict", type=str, default="DICT_4X4_50", help="ArUco dictionary name")
     parser.add_argument("--robot-id", type=int, default=1, help="Robot ArUco ID")
@@ -132,11 +132,11 @@ def main():
 
     # Load calibration (same style as your working script)
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    calib_path = os.path.join(script_dir, "CalibrationGantry.npz")
+    calib_path = os.path.join(script_dir, "Calibration.npz")
     if not os.path.exists(calib_path):
         raise FileNotFoundError(
             f"Calibration file not found: {calib_path}\n"
-            "Put CalibrationGantry.npz in the same folder as Vision_test_1.py"
+            "Put Calibration.npz in the same folder as Vision_test_1.py"
         )
 
     CM, dist_coef = load_calibration_npz(calib_path)
