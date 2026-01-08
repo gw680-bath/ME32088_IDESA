@@ -16,7 +16,7 @@ Requirements:
   pip install numpy opencv-contrib-python
 
 Calibration:
-  Place CalibrationGantry.npz in the SAME folder as this script.
+  Place Calibration.npz in the SAME folder as this script.
   It must contain arrays: 'CM' and 'dist_coef'
 
 Quit:
@@ -58,7 +58,7 @@ def pack_5floats(robot_x: float, robot_y: float, robot_yaw_deg: float,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--camera", type=int, default=0, help="Camera index (try 0 or 1)")
+    parser.add_argument("--camera", type=int, default=1, help="Camera index (try 0 or 1)")
     parser.add_argument("--marker-size-mm", type=float, default=40.0, help="Marker size in mm")
     parser.add_argument("--dict", type=str, default="DICT_4X4_50", help="ArUco dictionary name")
     parser.add_argument("--robot-id", type=int, default=1, help="Robot ArUco ID")
@@ -86,11 +86,11 @@ def main():
 
     # Load calibration
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    calib_path = os.path.join(script_dir, "CalibrationGantry.npz")
+    calib_path = os.path.join(script_dir, "Calibration.npz")
     if not os.path.exists(calib_path):
         raise FileNotFoundError(
             f"Calibration file not found: {calib_path}\n"
-            "Put CalibrationGantry.npz in the same folder as this script."
+            "Put Calibration.npz in the same folder as this script."
         )
     CM, dist_coef = load_calibration_npz(calib_path)
 
