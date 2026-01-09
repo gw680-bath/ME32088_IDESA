@@ -1,8 +1,11 @@
 """IDESA entry point.
 
 Usage (from ImageProcessing folder):
-    python IDESA_Main.py --udp-ip 192.168.1.50 --camera 0 --marker-size-mm 40 \
-        --robot-id 1 --target-id 3 --udp-port 50001 --send-hz 30 [--no-preview]
+    python IDESA_Main.py
+
+Edit the CONFIG dictionary below to change camera index, UDP destination, marker
+size, ArUco dictionary, send frequency, or preview preference without typing
+command-line arguments. Robot/target IDs can be adjusted live in the GUI.
 
 This spins up the modular system:
   * Vision thread captures from the selected camera and keeps the shared state up to date
@@ -14,49 +17,43 @@ This spins up the modular system:
 
 from __future__ import annotations
 
-import argparse
-import sys
-
 from GUI_mission_control_1 import create_gui
 from IDESA_Comms import UDPSender
 from IDESA_State import IDESAStateStore
 from IDESA_Vision import VisionSystem
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Modular IDESA vision + UDP stack")
-    parser.add_argument("--camera", type=int, default=0, help="Camera index (try 0 or 1)")
-    parser.add_argument("--marker-size-mm", type=float, default=40.0, help="Marker size in mm")
-    parser.add_argument("--dict", type=str, default="DICT_4X4_50", help="ArUco dictionary name")
-    parser.add_argument("--robot-id", type=int, default=1, help="Robot ArUco ID")
-    parser.add_argument("--target-id", type=int, default=3, help="Target ArUco ID")
-    parser.add_argument("--udp-ip", type=str, default="", help="Destination IP for Raspberry Pi")
-    parser.add_argument("--udp-port", type=int, default=50001, help="Destination UDP port")
-    parser.add_argument("--send-hz", type=float, default=30.0, help="UDP send frequency")
-    parser.add_argument("--no-preview", action="store_true", help="Disable OpenCV preview window")
-    return parser
+CONFIG = {
+    "camera_index": 0,
+    "marker_size_mm": 40.0,
+    "aruco_dict": "DICT_4X4_50",
+    "robot_id": 1,
+    "target_id": 3,
+    "udp_ip": "138.38.226.147",
+    "udp_port": 50001,
+    "send_hz": 30.0,
+    "display_preview": True,
+}
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
-
-    if not args.udp_ip:
-        parser.error("You must provide --udp-ip <destination>")
+def main() -> int:
+    udp_ip = CONFIG.get("udp_ip", "").strip()
+    if not udp_ip:
+        raise SystemExit("Set 'udp_ip' inside CONFIG before running IDESA_Main.py")
 
     state_store = IDESAStateStore()
     vision = VisionSystem(
         state_store=state_store,
-        camera_index=args.camera,
-        marker_size_mm=args.marker_size_mm,
-        dict_name=args.dict,
-        robot_id=args.robot_id,
-        target_id=args.target_id,
-        display_preview=not args.no_preview,
+        camera_index=int(CONFIG.get("camera_index", 0)),
+        marker_size_mm=float(CONFIG.get("marker_size_mm", 40.0)),
+        dict_name=str(CONFIG.get("aruco_dict", "DICT_4X4_50")),
+        robot_id=int(CONFIG.get("robot_id", 1)),
+        target_id=int(CONFIG.get("target_id", 3)),
+        display_preview=bool(CONFIG.get("display_preview", True)),
     )
-    udp_sender = UDPSender(args.udp_ip, args.udp_port)
+    udp_sender = UDPSender(udp_ip, int(CONFIG.get("udp_port", 50001)))
 
-    gui = create_gui(vision, udp_sender, state_store.snapshot, args.send_hz)
+    gui = create_gui(vision, udp_sender, state_store.snapshot, float(CONFIG.get("send_hz", 30.0)))
 
     try:
         gui.run()

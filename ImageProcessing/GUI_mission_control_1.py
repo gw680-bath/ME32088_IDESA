@@ -49,6 +49,15 @@ class _ControllerMixin:
         # Subclasses override to surface errors.
         pass
 
+    def _set_robot_id(self, value: int) -> None:
+        self._vision.set_robot_id(int(value))
+
+    def _set_target_id(self, value: int) -> None:
+        self._vision.set_target_id(int(value))
+
+    def _get_marker_ids(self) -> tuple[int, int]:
+        return self._vision.get_marker_ids()
+
 
 if PYSIDE_AVAILABLE:
 
@@ -88,6 +97,28 @@ if PYSIDE_AVAILABLE:
             for btn in (self._btn_start, self._btn_stop):
                 btn.setCursor(QtCore.Qt.PointingHandCursor)
                 button_row.addWidget(btn, stretch=1)
+
+            ids_group = QtWidgets.QGroupBox("Marker IDs")
+            ids_layout = QtWidgets.QFormLayout(ids_group)
+            ids_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
+            ids_layout.setFormAlignment(QtCore.Qt.AlignTop)
+
+            robot_id, target_id = self._get_marker_ids()
+
+            self._robot_spin = QtWidgets.QSpinBox()
+            self._robot_spin.setRange(0, 4096)
+            self._robot_spin.setValue(robot_id)
+            self._robot_spin.valueChanged.connect(self._set_robot_id)
+
+            self._target_spin = QtWidgets.QSpinBox()
+            self._target_spin.setRange(0, 4096)
+            self._target_spin.setValue(target_id)
+            self._target_spin.valueChanged.connect(self._set_target_id)
+
+            ids_layout.addRow("Robot ID:", self._robot_spin)
+            ids_layout.addRow("Target ID:", self._target_spin)
+
+            layout.addWidget(ids_group)
 
             stats_group = QtWidgets.QGroupBox("Live Telemetry")
             stats_layout = QtWidgets.QFormLayout(stats_group)
@@ -201,6 +232,35 @@ else:
             for i in range(2):
                 button_frame.columnconfigure(i, weight=1)
 
+            ids_frame = ttk.LabelFrame(self, text="Marker IDs")
+            ids_frame.pack(fill="x", padx=12, pady=(0, 12))
+
+            robot_id, target_id = self._get_marker_ids()
+            self._robot_id_var = tk.IntVar(value=robot_id)
+            self._target_id_var = tk.IntVar(value=target_id)
+
+            robot_spin = tk.Spinbox(
+                ids_frame,
+                from_=0,
+                to=4096,
+                textvariable=self._robot_id_var,
+                width=6,
+                command=self._on_robot_spin,
+            )
+            target_spin = tk.Spinbox(
+                ids_frame,
+                from_=0,
+                to=4096,
+                textvariable=self._target_id_var,
+                width=6,
+                command=self._on_target_spin,
+            )
+
+            ttk.Label(ids_frame, text="Robot ID:").grid(row=0, column=0, sticky="w", padx=8, pady=4)
+            robot_spin.grid(row=0, column=1, sticky="w", padx=8, pady=4)
+            ttk.Label(ids_frame, text="Target ID:").grid(row=1, column=0, sticky="w", padx=8, pady=4)
+            target_spin.grid(row=1, column=1, sticky="w", padx=8, pady=4)
+
             stats_frame = ttk.LabelFrame(self, text="Live Telemetry")
             stats_frame.pack(fill="both", expand=True, padx=12, pady=12)
 
@@ -245,6 +305,12 @@ else:
             self._value_labels["robot_detected"].config(text="YES" if state.robot_detected else "no")
             self._value_labels["target_detected"].config(text="YES" if state.target_detected else "no")
             self._value_labels["fps"].config(text=f"{state.fps:5.1f}")
+
+        def _on_robot_spin(self) -> None:
+            self._set_robot_id(self._robot_id_var.get())
+
+        def _on_target_spin(self) -> None:
+            self._set_target_id(self._target_id_var.get())
 
         def _on_close(self) -> None:
             self._stop_all()

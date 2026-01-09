@@ -6,7 +6,7 @@ import math
 import os
 import time
 from threading import Event, Lock, Thread
-from typing import Optional
+from typing import Optional, Tuple
 
 import cv2
 import cv2.aruco as aruco
@@ -46,6 +46,7 @@ class VisionSystem:
         self._dict_name = dict_name
         self._robot_id = robot_id
         self._target_id = target_id
+        self._ids_lock = Lock()
         self._display_preview = display_preview
         self._preview_window_name = "Vision - Onboard UDP"
 
@@ -111,6 +112,23 @@ class VisionSystem:
         thread = self._tracking_thread
         return bool(thread and thread.is_alive())
 
+    def set_robot_id(self, robot_id: int) -> None:
+        with self._ids_lock:
+            self._robot_id = int(robot_id)
+
+    def set_target_id(self, target_id: int) -> None:
+        with self._ids_lock:
+            self._target_id = int(target_id)
+
+    def set_marker_ids(self, robot_id: int, target_id: int) -> None:
+        with self._ids_lock:
+            self._robot_id = int(robot_id)
+            self._target_id = int(target_id)
+
+    def get_marker_ids(self) -> Tuple[int, int]:
+        with self._ids_lock:
+            return self._robot_id, self._target_id
+
     def _tracking_loop(self) -> None:
         last_robot_x = 0.0
         last_robot_y = 0.0
@@ -121,6 +139,10 @@ class VisionSystem:
         last_frame_t = 0.0
 
         while not self._stop_event.is_set():
+            with self._ids_lock:
+                robot_id = self._robot_id
+                target_id = self._target_id
+
             with self._cap_lock:
                 cap = self._cap
             if cap is None:
@@ -172,13 +194,13 @@ class VisionSystem:
                             self._marker_size_mm * 0.75,
                         )
 
-                    if marker_id == self._robot_id:
+                    if marker_id == robot_id:
                         last_robot_yaw = yaw_deg_from_rvec(rvec)
                         last_robot_x = x
                         last_robot_y = y
                         robot_detected = True
 
-                    if marker_id == self._target_id:
+                    if marker_id == target_id:
                         last_target_x = x
                         last_target_y = y
                         target_detected = True
@@ -197,14 +219,14 @@ class VisionSystem:
 
             if self._display_preview:
                 robot_text = (
-                    f"Robot (ID {self._robot_id}): yaw={last_robot_yaw:6.1f}\u00b0  x={last_robot_x:8.2f}  y={last_robot_y:8.2f}  [mm]"
+                    f"Robot (ID {robot_id}): yaw={last_robot_yaw:6.1f}\u00b0  x={last_robot_x:8.2f}  y={last_robot_y:8.2f}  [mm]"
                     if robot_detected
-                    else f"Robot (ID {self._robot_id}): NOT DETECTED (sending last)"
+                    else f"Robot (ID {robot_id}): NOT DETECTED (sending last)"
                 )
                 target_text = (
-                    f"Target (ID {self._target_id}): x={last_target_x:8.2f}  y={last_target_y:8.2f}  [mm]"
+                    f"Target (ID {target_id}): x={last_target_x:8.2f}  y={last_target_y:8.2f}  [mm]"
                     if target_detected
-                    else f"Target (ID {self._target_id}): NOT DETECTED (sending last)"
+                    else f"Target (ID {target_id}): NOT DETECTED (sending last)"
                 )
                 cv2.putText(
                     annotated,
