@@ -6,13 +6,14 @@ import math
 import os
 import time
 from threading import Event, Lock, Thread
-from typing import Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import cv2
 import cv2.aruco as aruco
 import numpy as np
 
-from IDESA_State import IDESAStateStore, IDESAState
+from IDESA_State import IDESAState, IDESAStateStore
+from IDESA_Types import TargetTrack
 
 
 def yaw_deg_from_rvec(rvec: np.ndarray) -> float:
@@ -45,8 +46,6 @@ class VisionSystem:
         self._marker_size_mm = marker_size_mm
         self._dict_name = dict_name
         self._robot_id = robot_id
-        self._target_id = target_id
-        self._ids_lock = Lock()
         self._display_preview = display_preview
         self._preview_window_name = "Vision - Onboard UDP"
 
@@ -55,6 +54,10 @@ class VisionSystem:
 
         self._tracking_thread: Optional[Thread] = None
         self._stop_event = Event()
+
+        self._ids_lock = Lock()
+        self._tracked_target_ids: Tuple[int, ...] = ()
+        self._targets_by_id: Dict[int, TargetTrack] = {}
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
         calib_path = os.path.join(script_dir, "Calibration.npz")
@@ -70,6 +73,12 @@ class VisionSystem:
         self._aruco_dict = aruco.getPredefinedDictionary(getattr(aruco, dict_name))
         self._parameters = aruco.DetectorParameters()
 
+        # Seed initial target selection (can be replaced later via GUI).
+        self.set_tracked_target_ids([target_id])
+
+    # ------------------------------------------------------------------
+    # Camera + tracking lifecycle
+    # ------------------------------------------------------------------
     def start_camera(self) -> None:
         with self._cap_lock:
             if self._cap and self._cap.isOpened():
@@ -105,43 +114,53 @@ class VisionSystem:
         self._tracking_thread = None
         self._stop_event.clear()
 
-    def get_state_snapshot(self) -> IDESAState:
-        return self._state_store.snapshot()
-
     def is_tracking(self) -> bool:
         thread = self._tracking_thread
         return bool(thread and thread.is_alive())
+
+    # ------------------------------------------------------------------
+    # Shared state helpers
+    # ------------------------------------------------------------------
+    def get_state_snapshot(self) -> IDESAState:
+        return self._state_store.snapshot()
 
     def set_robot_id(self, robot_id: int) -> None:
         with self._ids_lock:
             self._robot_id = int(robot_id)
 
-    def set_target_id(self, target_id: int) -> None:
-        with self._ids_lock:
-            self._target_id = int(target_id)
+    def set_target_id(self, target_id: int) -> Tuple[int, ...]:
+        """Backward-compatible helper that selects a single target."""
+        return self.set_tracked_target_ids([int(target_id)])
 
-    def set_marker_ids(self, robot_id: int, target_id: int) -> None:
+    def set_tracked_target_ids(self, target_ids: Sequence[int]) -> Tuple[int, ...]:
+        cleaned = tuple(dict.fromkeys(int(tid) for tid in target_ids if tid is not None))
         with self._ids_lock:
-            self._robot_id = int(robot_id)
-            self._target_id = int(target_id)
+            previous = self._targets_by_id
+            new_tracks: Dict[int, TargetTrack] = {}
+            for tid in cleaned:
+                new_tracks[tid] = previous.get(tid, TargetTrack())
+            self._targets_by_id = new_tracks
+            self._tracked_target_ids = cleaned
+            return self._tracked_target_ids
 
-    def get_marker_ids(self) -> Tuple[int, int]:
+    def get_tracked_target_ids(self) -> Tuple[int, ...]:
         with self._ids_lock:
-            return self._robot_id, self._target_id
+            return self._tracked_target_ids
 
+    # ------------------------------------------------------------------
+    # Internal vision loop
+    # ------------------------------------------------------------------
     def _tracking_loop(self) -> None:
         last_robot_x = 0.0
         last_robot_y = 0.0
         last_robot_yaw = 0.0
-        last_target_x = 0.0
-        last_target_y = 0.0
         fps = 0.0
         last_frame_t = 0.0
 
         while not self._stop_event.is_set():
             with self._ids_lock:
                 robot_id = self._robot_id
-                target_id = self._target_id
+                tracked_ids = tuple(self._tracked_target_ids)
 
             with self._cap_lock:
                 cap = self._cap
@@ -168,7 +187,7 @@ class VisionSystem:
             corners, ids, _ = aruco.detectMarkers(gray, self._aruco_dict, parameters=self._parameters)
 
             robot_detected = False
-            target_detected = False
+            target_updates: Dict[int, TargetTrack] = {}
 
             if ids is not None and len(ids) > 0:
                 ids_flat = ids.flatten().astype(int)
@@ -200,21 +219,45 @@ class VisionSystem:
                         last_robot_y = y
                         robot_detected = True
 
-                    if marker_id == target_id:
-                        last_target_x = x
-                        last_target_y = y
-                        target_detected = True
+                    elif marker_id in tracked_ids:
+                        target_updates[marker_id] = TargetTrack(
+                            x_mm=x,
+                            y_mm=y,
+                            detected=True,
+                            last_seen_time=now,
+                        )
+
+            overlay_summary: Tuple[Tuple[int, TargetTrack], ...] = ()
+            targets_snapshot: Dict[int, TargetTrack] = {}
+            if tracked_ids:
+                with self._ids_lock:
+                    for tid, track in target_updates.items():
+                        self._targets_by_id[tid] = track
+                    summary_list = []
+                    for tid in tracked_ids:
+                        current = self._targets_by_id.get(tid)
+                        if tid not in target_updates:
+                            if current:
+                                self._targets_by_id[tid] = TargetTrack(
+                                    x_mm=current.x_mm,
+                                    y_mm=current.y_mm,
+                                    detected=False,
+                                    last_seen_time=current.last_seen_time,
+                                )
+                            else:
+                                self._targets_by_id[tid] = TargetTrack()
+                        summary_list.append((tid, self._targets_by_id[tid]))
+                    targets_snapshot = {tid: self._targets_by_id[tid] for tid in tracked_ids}
+                    overlay_summary = tuple(summary_list)
 
             self._state_store.update(
                 robot_x_mm=last_robot_x,
                 robot_y_mm=last_robot_y,
                 robot_yaw_deg=last_robot_yaw,
-                target_x_mm=last_target_x,
-                target_y_mm=last_target_y,
                 robot_detected=robot_detected,
-                target_detected=target_detected,
                 fps=fps,
                 last_update_time=now,
+                targets_by_id=targets_snapshot,
             )
 
             if self._display_preview:
@@ -223,11 +266,14 @@ class VisionSystem:
                     if robot_detected
                     else f"Robot (ID {robot_id}): NOT DETECTED (sending last)"
                 )
-                target_text = (
-                    f"Target (ID {target_id}): x={last_target_x:8.2f}  y={last_target_y:8.2f}  [mm]"
-                    if target_detected
-                    else f"Target (ID {target_id}): NOT DETECTED (sending last)"
-                )
+                if overlay_summary:
+                    summary_bits = []
+                    for tid, track in overlay_summary:
+                        flag = "Y" if track.detected else "n"
+                        summary_bits.append(f"{tid}:{flag}")
+                    target_text = "Targets " + ", ".join(summary_bits)
+                else:
+                    target_text = "Targets: none selected"
                 cv2.putText(
                     annotated,
                     robot_text,

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from GUI_mission_control_1 import create_gui
 from IDESA_Comms import UDPSender
+from IDESA_Mission import TargetQueueController
 from IDESA_State import IDESAStateStore
 from IDESA_Vision import VisionSystem
 
@@ -28,7 +29,9 @@ CONFIG = {
     "marker_size_mm": 40.0,
     "aruco_dict": "DICT_4X4_50",
     "robot_id": 1,
-    "target_id": 3,
+    "default_target_ids": [2, 3, 4],
+    "available_target_ids": [2, 3, 4, 5, 6, 7],
+    "switch_radius_mm": 300.0,
     "udp_ip": "138.38.226.147",
     "udp_port": 50001,
     "send_hz": 30.0,
@@ -42,18 +45,44 @@ def main() -> int:
         raise SystemExit("Set 'udp_ip' inside CONFIG before running IDESA_Main.py")
 
     state_store = IDESAStateStore()
+
+    available_target_ids = tuple(int(t) for t in CONFIG.get("available_target_ids", (2, 3, 4, 5, 6, 7)))
+    if len(available_target_ids) < 2:
+        raise SystemExit("CONFIG must list at least two 'available_target_ids'.")
+
+    default_target_ids = tuple(int(t) for t in CONFIG.get("default_target_ids", available_target_ids[:2]))
+    if len(default_target_ids) < 2:
+        default_target_ids = available_target_ids[:2]
+
+    switch_radius_mm = float(CONFIG.get("switch_radius_mm", 300.0))
+
     vision = VisionSystem(
         state_store=state_store,
         camera_index=int(CONFIG.get("camera_index", 0)),
         marker_size_mm=float(CONFIG.get("marker_size_mm", 40.0)),
         dict_name=str(CONFIG.get("aruco_dict", "DICT_4X4_50")),
         robot_id=int(CONFIG.get("robot_id", 1)),
-        target_id=int(CONFIG.get("target_id", 3)),
+        target_id=int(default_target_ids[0]),
         display_preview=bool(CONFIG.get("display_preview", True)),
     )
+    vision.set_tracked_target_ids(default_target_ids)
+
+    mission = TargetQueueController(state_store)
+    mission.set_switch_radius(switch_radius_mm)
+    mission.set_target_ids(default_target_ids)
+
     udp_sender = UDPSender(udp_ip, int(CONFIG.get("udp_port", 50001)))
 
-    gui = create_gui(vision, udp_sender, state_store.snapshot, float(CONFIG.get("send_hz", 30.0)))
+    gui = create_gui(
+        vision,
+        mission,
+        udp_sender,
+        state_store.snapshot,
+        float(CONFIG.get("send_hz", 30.0)),
+        available_target_ids,
+        default_target_ids,
+        switch_radius_mm,
+    )
 
     try:
         gui.run()
@@ -63,6 +92,7 @@ def main() -> int:
             gui.stop()  # type: ignore[attr-defined]
         except Exception:
             pass
+        mission.stop()
         udp_sender.stop()
         udp_sender.close()
         vision.stop_tracking()
