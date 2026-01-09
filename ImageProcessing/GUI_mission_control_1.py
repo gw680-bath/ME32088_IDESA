@@ -33,17 +33,6 @@ class _ControllerMixin:
         self._state_supplier = state_supplier
         self._send_hz = send_hz
 
-    # These helpers keep button callbacks short and predictable.
-    def _activate_camera(self) -> None:
-        try:
-            self._vision.start_camera()
-        except Exception as exc:
-            self._handle_error(str(exc))
-
-    def _deactivate_camera(self) -> None:
-        self._vision.stop_tracking()
-        self._vision.stop_camera()
-
     def _start_all(self) -> None:
         try:
             self._vision.start_tracking()
@@ -54,6 +43,7 @@ class _ControllerMixin:
     def _stop_all(self) -> None:
         self._sender.stop()
         self._vision.stop_tracking()
+        self._vision.stop_camera()
 
     def _handle_error(self, message: str) -> None:
         # Subclasses override to surface errors.
@@ -87,14 +77,6 @@ if PYSIDE_AVAILABLE:
             button_row = QtWidgets.QHBoxLayout()
             layout.addLayout(button_row)
 
-            self._btn_activate = QtWidgets.QPushButton("Activate Camera")
-            self._btn_activate.setFont(button_font)
-            self._btn_activate.clicked.connect(self._activate_camera)
-
-            self._btn_deactivate = QtWidgets.QPushButton("Deactivate Camera")
-            self._btn_deactivate.setFont(button_font)
-            self._btn_deactivate.clicked.connect(self._deactivate_camera)
-
             self._btn_start = QtWidgets.QPushButton("Start")
             self._btn_start.setFont(button_font)
             self._btn_start.clicked.connect(self._start_all)
@@ -103,7 +85,7 @@ if PYSIDE_AVAILABLE:
             self._btn_stop.setFont(button_font)
             self._btn_stop.clicked.connect(self._stop_all)
 
-            for btn in (self._btn_activate, self._btn_deactivate, self._btn_start, self._btn_stop):
+            for btn in (self._btn_start, self._btn_stop):
                 btn.setCursor(QtCore.Qt.PointingHandCursor)
                 button_row.addWidget(btn, stretch=1)
 
@@ -214,11 +196,9 @@ else:
 
             self._value_labels: Dict[str, ttk.Label] = {}
 
-            ttk.Button(button_frame, text="Activate Camera", command=self._activate_camera).grid(row=0, column=0, sticky="nsew", padx=4)
-            ttk.Button(button_frame, text="Deactivate Camera", command=self._deactivate_camera).grid(row=0, column=1, sticky="nsew", padx=4)
-            ttk.Button(button_frame, text="Start", command=self._start_all).grid(row=0, column=2, sticky="nsew", padx=4)
-            ttk.Button(button_frame, text="Stop", command=self._stop_all).grid(row=0, column=3, sticky="nsew", padx=4)
-            for i in range(4):
+            ttk.Button(button_frame, text="Start", command=self._start_all).grid(row=0, column=0, sticky="nsew", padx=4)
+            ttk.Button(button_frame, text="Stop", command=self._stop_all).grid(row=0, column=1, sticky="nsew", padx=4)
+            for i in range(2):
                 button_frame.columnconfigure(i, weight=1)
 
             stats_frame = ttk.LabelFrame(self, text="Live Telemetry")
