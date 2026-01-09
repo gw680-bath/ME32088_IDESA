@@ -80,6 +80,7 @@ class _ControllerMixin:
         self._sender.stop()
         self._mission.stop()
         self._vision.stop_tracking()
+        self._vision.stop_camera()
 
     # ------------------------------------------------------------------
     # Shared helpers for target/switch configuration
@@ -153,8 +154,6 @@ if PYSIDE_AVAILABLE:
             layout.addLayout(button_row)
 
             buttons = [
-                ("Activate Camera", self._activate_camera),
-                ("Deactivate Camera", self._deactivate_camera),
                 ("Start", self._start_all),
                 ("Stop", self._stop_all),
             ]
@@ -170,15 +169,41 @@ if PYSIDE_AVAILABLE:
             control_layout.setColumnStretch(0, 2)
             control_layout.setColumnStretch(1, 1)
 
-            self._target_list = QtWidgets.QListWidget()
-            self._target_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
-            self._target_list.setMinimumHeight(120)
-            for tid in self._available_target_ids:
-                item = QtWidgets.QListWidgetItem(str(tid))
-                self._target_list.addItem(item)
-            self._target_list.itemSelectionChanged.connect(self._on_target_selection_changed)
             control_layout.addWidget(QtWidgets.QLabel("Select targets (2-6):"), 0, 0)
-            control_layout.addWidget(self._target_list, 1, 0)
+            self._target_checks_container = QtWidgets.QWidget()
+            checks_layout = QtWidgets.QVBoxLayout(self._target_checks_container)
+            checks_layout.setContentsMargins(0, 0, 0, 0)
+            checks_layout.setSpacing(4)
+            self._target_checks: Dict[int, QtWidgets.QCheckBox] = {}
+            for tid in self._available_target_ids:
+                checkbox = QtWidgets.QCheckBox(str(tid))
+                checkbox.stateChanged.connect(self._on_target_checkbox_changed)
+                checkbox.setCursor(QtCore.Qt.PointingHandCursor)
+                self._target_checks[tid] = checkbox
+                checks_layout.addWidget(checkbox)
+            self._target_checks_container.setStyleSheet(
+                """
+                QCheckBox {
+                    font: 11pt "Space Grotesk";
+                    color: #e2e8f0;
+                }
+                QCheckBox::indicator {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 8px;
+                    border: 2px solid #94a3b8;
+                    background: transparent;
+                }
+                QCheckBox::indicator:checked {
+                    background-color: #38bdf8;
+                    border-color: #38bdf8;
+                }
+                QCheckBox::indicator:hover {
+                    border-color: #7dd3fc;
+                }
+                """
+            )
+            control_layout.addWidget(self._target_checks_container, 1, 0)
 
             self._radius_spin = QtWidgets.QDoubleSpinBox()
             self._radius_spin.setRange(10.0, 5000.0)
@@ -230,21 +255,19 @@ if PYSIDE_AVAILABLE:
             self._timer.timeout.connect(self._refresh_values)
             self._timer.start(100)
 
-        def _on_target_selection_changed(self) -> None:
+        def _on_target_checkbox_changed(self) -> None:
             if self._selection_blocked:
                 return
-            selected = [int(item.text()) for item in self._target_list.selectedItems()]
+            selected = [tid for tid, box in self._target_checks.items() if box.isChecked()]
             if not self._try_update_targets(selected):
                 self._apply_target_selection_to_ui(self._current_target_ids)
 
         def _apply_target_selection_to_ui(self, selection: Tuple[int, ...]) -> None:  # type: ignore[override]
             self._selection_blocked = True
             try:
-                self._target_list.clearSelection()
-                for idx in range(self._target_list.count()):
-                    item = self._target_list.item(idx)
-                    if int(item.text()) in selection:
-                        item.setSelected(True)
+                lookup = set(selection)
+                for tid, box in self._target_checks.items():
+                    box.setChecked(tid in lookup)
             finally:
                 self._selection_blocked = False
 
@@ -357,8 +380,6 @@ else:
             button_frame.pack(fill="x", pady=10, padx=12)
 
             buttons = [
-                ("Activate Camera", self._activate_camera),
-                ("Deactivate Camera", self._deactivate_camera),
                 ("Start", self._start_all),
                 ("Stop", self._stop_all),
             ]
@@ -371,11 +392,22 @@ else:
 
             ttk.Label(config_frame, text="Select targets (2-6):").grid(row=0, column=0, sticky="w", padx=8, pady=4)
             self._selection_blocked = False
-            self._target_list = tk.Listbox(config_frame, selectmode=tk.MULTIPLE, exportselection=False, height=6)
-            for idx, tid in enumerate(self._available_target_ids):
-                self._target_list.insert(idx, str(tid))
-            self._target_list.bind("<<ListboxSelect>>", self._on_target_list_changed)
-            self._target_list.grid(row=1, column=0, padx=8, pady=4, sticky="nsew")
+            self._target_vars: Dict[int, tk.BooleanVar] = {}
+            self._target_circles: Dict[int, tk.Canvas] = {}
+            targets_frame = tk.Frame(config_frame, bg=self["background"])
+            targets_frame.grid(row=1, column=0, padx=8, pady=4, sticky="nsew")
+            for tid in self._available_target_ids:
+                row = tk.Frame(targets_frame, bg=self["background"])
+                circle = tk.Canvas(row, width=18, height=18, highlightthickness=0, bg=self["background"], bd=0)
+                circle.grid(row=0, column=0, padx=(0, 6))
+                label = ttk.Label(row, text=f"ID {tid}")
+                label.grid(row=0, column=1, sticky="w")
+                row.pack(anchor="w", pady=2, fill="x")
+                self._target_vars[tid] = tk.BooleanVar(value=tid in self._current_target_ids)
+                self._target_circles[tid] = circle
+                for widget in (circle, label, row):
+                    widget.bind("<Button-1>", lambda _event, t=tid: self._on_target_circle_click(t))
+                self._draw_target_circle(tid)
 
             ttk.Label(config_frame, text="Switch radius [mm]:").grid(row=0, column=1, sticky="w", padx=8, pady=4)
             self._radius_var = tk.DoubleVar(value=self._current_switch_radius)
@@ -428,23 +460,32 @@ else:
             self.protocol("WM_DELETE_WINDOW", self._on_close)
             self._schedule_refresh()
 
-        def _on_target_list_changed(self, _event=None) -> None:
+        def _on_target_circle_click(self, tid: int) -> None:
             if self._selection_blocked:
                 return
-            selection = [int(self._target_list.get(i)) for i in self._target_list.curselection()]
+            current = self._target_vars[tid].get()
+            self._target_vars[tid].set(not current)
+            self._draw_target_circle(tid)
+            selection = [t for t, var in self._target_vars.items() if var.get()]
             if not self._try_update_targets(selection):
                 self._apply_target_selection_to_ui(self._current_target_ids)
 
         def _apply_target_selection_to_ui(self, selection: Tuple[int, ...]) -> None:  # type: ignore[override]
             self._selection_blocked = True
             try:
-                self._target_list.selection_clear(0, tk.END)
                 lookup = set(selection)
-                for idx, tid in enumerate(self._available_target_ids):
-                    if tid in lookup:
-                        self._target_list.selection_set(idx)
+                for tid, var in self._target_vars.items():
+                    var.set(tid in lookup)
+                    self._draw_target_circle(tid)
             finally:
                 self._selection_blocked = False
+
+        def _draw_target_circle(self, tid: int) -> None:
+            canvas = self._target_circles[tid]
+            canvas.delete("all")
+            canvas.create_oval(2, 2, 16, 16, outline="#94a3b8", width=2, fill=self["background"])
+            if self._target_vars[tid].get():
+                canvas.create_oval(6, 6, 12, 12, outline="", fill="#38bdf8")
 
         def _on_radius_spin(self) -> None:
             try:
