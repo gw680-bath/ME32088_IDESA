@@ -40,6 +40,9 @@ class VisionSystem:
         robot_id: int = 1,
         target_id: int = 3,
         display_preview: bool = True,
+        frame_width: Optional[int] = None,
+        frame_height: Optional[int] = None,
+        share_preview_frames: bool = True,
     ) -> None:
         self._state_store = state_store
         self._camera_index = camera_index
@@ -47,6 +50,9 @@ class VisionSystem:
         self._dict_name = dict_name
         self._robot_id = robot_id
         self._display_preview = display_preview
+        self._frame_width = frame_width
+        self._frame_height = frame_height
+        self._share_preview_frames = share_preview_frames
         self._preview_window_name = "Vision - Onboard UDP"
 
         self._cap: Optional[cv2.VideoCapture] = None
@@ -58,6 +64,9 @@ class VisionSystem:
         self._ids_lock = Lock()
         self._tracked_target_ids: Tuple[int, ...] = ()
         self._targets_by_id: Dict[int, TargetTrack] = {}
+
+        self._preview_lock = Lock()
+        self._latest_frame: Optional[np.ndarray] = None
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
         calib_path = os.path.join(script_dir, "Calibration.npz")
@@ -84,6 +93,10 @@ class VisionSystem:
             if self._cap and self._cap.isOpened():
                 return
             cap = cv2.VideoCapture(self._camera_index)
+            if self._frame_width:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self._frame_width))
+            if self._frame_height:
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self._frame_height))
             if not cap.isOpened():
                 cap.release()
                 raise RuntimeError(f"Could not open camera index {self._camera_index}")
@@ -181,7 +194,8 @@ class VisionSystem:
                     fps = inst if fps == 0.0 else (0.9 * fps + 0.1 * inst)
             last_frame_t = now
 
-            annotated = frame.copy() if self._display_preview else frame
+            overlay_enabled = self._display_preview or self._share_preview_frames
+            annotated = frame.copy() if overlay_enabled else frame
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             corners, ids, _ = aruco.detectMarkers(gray, self._aruco_dict, parameters=self._parameters)
@@ -191,7 +205,7 @@ class VisionSystem:
 
             if ids is not None and len(ids) > 0:
                 ids_flat = ids.flatten().astype(int)
-                if self._display_preview:
+                if overlay_enabled:
                     aruco.drawDetectedMarkers(annotated, corners, ids)
                 rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
                     corners, self._marker_size_mm, self._camera_matrix, self._dist_coef
@@ -203,7 +217,7 @@ class VisionSystem:
                     x = float(tvec[0, 0])
                     y = float(tvec[1, 0])
 
-                    if self._display_preview:
+                    if overlay_enabled:
                         cv2.drawFrameAxes(
                             annotated,
                             self._camera_matrix,
@@ -260,7 +274,7 @@ class VisionSystem:
                 targets_by_id=targets_snapshot,
             )
 
-            if self._display_preview:
+            if overlay_enabled:
                 robot_text = (
                     f"Robot (ID {robot_id}): yaw={last_robot_yaw:6.1f}\u00b0  x={last_robot_x:8.2f}  y={last_robot_y:8.2f}  [mm]"
                     if robot_detected
@@ -302,9 +316,14 @@ class VisionSystem:
                     2,
                 )
 
-                cv2.imshow(self._preview_window_name, annotated)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    self._stop_event.set()
+                if self._display_preview:
+                    cv2.imshow(self._preview_window_name, annotated)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        self._stop_event.set()
+
+            if self._share_preview_frames:
+                with self._preview_lock:
+                    self._latest_frame = annotated.copy() if overlay_enabled else frame.copy()
 
         # ensure we leave things in a known state when loop exits
         self._state_store.update(last_update_time=time.time())
@@ -313,3 +332,9 @@ class VisionSystem:
                 cv2.destroyWindow(self._preview_window_name)
             except cv2.error:
                 pass
+
+    def get_latest_frame(self) -> Optional[np.ndarray]:
+        with self._preview_lock:
+            if self._latest_frame is None:
+                return None
+            return self._latest_frame.copy()

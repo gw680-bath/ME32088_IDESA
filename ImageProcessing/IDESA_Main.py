@@ -17,6 +17,8 @@ This spins up the modular system:
 
 from __future__ import annotations
 
+from typing import Optional
+
 from GUI_mission_control_1 import create_gui
 from IDESA_Comms import UDPSender
 from IDESA_Mission import TargetQueueController
@@ -26,6 +28,7 @@ from IDESA_Vision import VisionSystem
 
 CONFIG = {
     "camera_index": 1,
+    "camera_resolution": [1920, 1080],
     "marker_size_mm": 40.0,
     "aruco_dict": "DICT_4X4_50",
     "robot_id": 1,
@@ -55,6 +58,15 @@ def main() -> int:
         default_target_ids = available_target_ids[:2]
 
     switch_radius_mm = float(CONFIG.get("switch_radius_mm", 300.0))
+    resolution = CONFIG.get("camera_resolution")
+    frame_width: Optional[int] = None
+    frame_height: Optional[int] = None
+    if isinstance(resolution, (list, tuple)) and len(resolution) == 2:
+        try:
+            frame_width = int(resolution[0])
+            frame_height = int(resolution[1])
+        except (TypeError, ValueError):
+            frame_width = frame_height = None
 
     vision = VisionSystem(
         state_store=state_store,
@@ -64,6 +76,8 @@ def main() -> int:
         robot_id=int(CONFIG.get("robot_id", 1)),
         target_id=int(default_target_ids[0]),
         display_preview=bool(CONFIG.get("display_preview", True)),
+        frame_width=frame_width,
+        frame_height=frame_height,
     )
     vision.set_tracked_target_ids(default_target_ids)
 

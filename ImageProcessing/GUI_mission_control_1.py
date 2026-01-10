@@ -16,9 +16,19 @@ try:
 except Exception:  # pragma: no cover - PySide6 optional
     PYSIDE_AVAILABLE = False
 
+PIL_AVAILABLE = False
 if not PYSIDE_AVAILABLE:
     import tkinter as tk
     from tkinter import ttk
+
+    try:
+        from PIL import Image, ImageTk  # type: ignore
+
+        PIL_AVAILABLE = True
+    except Exception:  # pragma: no cover - optional dependency
+        PIL_AVAILABLE = False
+        Image = None  # type: ignore
+        ImageTk = None  # type: ignore
 
 
 class _ControllerMixin:
@@ -244,6 +254,17 @@ if PYSIDE_AVAILABLE:
 
             layout.addWidget(stats_group)
 
+            preview_group = QtWidgets.QGroupBox("Camera Preview")
+            preview_layout = QtWidgets.QVBoxLayout(preview_group)
+            self._preview_label = QtWidgets.QLabel("Waiting for frames...")
+            self._preview_label.setAlignment(QtCore.Qt.AlignCenter)
+            self._preview_label.setMinimumHeight(240)
+            self._preview_label.setStyleSheet(
+                "background-color: #020617; color: #94a3b8; border: 1px solid #1e293b;"
+            )
+            preview_layout.addWidget(self._preview_label)
+            layout.addWidget(preview_group)
+
             self._status_bar = QtWidgets.QStatusBar()
             self.setStatusBar(self._status_bar)
 
@@ -286,6 +307,26 @@ if PYSIDE_AVAILABLE:
             self._value_labels["switch_radius_mm"].setText(f"{state.switch_radius_mm:8.2f}")
             queue_text = ", ".join(str(tid) for tid in state.queue_order) if state.queue_order else "-"
             self._value_labels["queue_order"].setText(queue_text)
+            self._update_preview_label()
+
+        def _update_preview_label(self) -> None:
+            frame = self._vision.get_latest_frame()
+            if frame is None:
+                return
+            rgb = frame[:, :, ::-1].copy()
+            height, width, _ = rgb.shape
+            bytes_per_line = 3 * width
+            image = QtGui.QImage(rgb.data, width, height, bytes_per_line, QtGui.QImage.Format.Format_RGB888).copy()
+            pixmap = QtGui.QPixmap.fromImage(image)
+            target_w = max(1, self._preview_label.width())
+            target_h = max(1, self._preview_label.height())
+            scaled = pixmap.scaled(
+                target_w,
+                target_h,
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation,
+            )
+            self._preview_label.setPixmap(scaled)
 
         def _handle_error(self, message: str) -> None:  # type: ignore[override]
             self._status_bar.showMessage(message, 4000)
@@ -451,6 +492,28 @@ else:
                 value_lbl.grid(row=idx, column=1, sticky="e", padx=8, pady=4)
                 self._value_labels[key] = value_lbl
 
+            self._preview_label = None
+            self._preview_size = (640, 360)
+            self._preview_photo = None
+            if PIL_AVAILABLE:
+                preview_frame = ttk.LabelFrame(self, text="Camera Preview")
+                preview_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+                self._preview_label = tk.Label(
+                    preview_frame,
+                    text="Waiting for frames...",
+                    bg="#020617",
+                    fg="#94a3b8",
+                    anchor="center",
+                )
+                self._preview_label.pack(fill="both", expand=True, padx=12, pady=12)
+            else:
+                warning = ttk.Label(
+                    self,
+                    text="Install Pillow to enable embedded camera preview (pip install pillow).",
+                    anchor="center",
+                )
+                warning.pack(fill="x", padx=12, pady=(0, 12))
+
             self._status_var = tk.StringVar(value="Idle")
             status_bar = ttk.Label(self, textvariable=self._status_var, anchor="w")
             status_bar.pack(fill="x", padx=12, pady=(0, 8))
@@ -513,6 +576,20 @@ else:
             self._value_labels["switch_radius_mm"].config(text=f"{state.switch_radius_mm:8.2f}")
             queue_text = ", ".join(str(tid) for tid in state.queue_order) if state.queue_order else "-"
             self._value_labels["queue_order"].config(text=queue_text)
+            self._update_preview_frame()
+
+        def _update_preview_frame(self) -> None:
+            if not PIL_AVAILABLE or self._preview_label is None:
+                return
+            frame = self._vision.get_latest_frame()
+            if frame is None:
+                return
+            rgb = frame[:, :, ::-1]
+            image = Image.fromarray(rgb)
+            image.thumbnail(self._preview_size, Image.LANCZOS)
+            photo = ImageTk.PhotoImage(image)
+            self._preview_label.configure(image=photo, text="")
+            self._preview_photo = photo
 
         def _handle_error(self, message: str) -> None:  # type: ignore[override]
             self._status_var.set(message)
