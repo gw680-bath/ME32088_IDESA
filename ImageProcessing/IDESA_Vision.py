@@ -34,8 +34,8 @@ class VisionSystem:
     def __init__(
         self,
         state_store: IDESAStateStore,
-        camera_index: int = 0,
-        marker_size_mm: float = 40.0,
+        camera_index: int = 1,
+        marker_size_mm: float = 100.0,
         dict_name: str = "DICT_4X4_50",
         robot_id: int = 1,
         target_id: int = 3,

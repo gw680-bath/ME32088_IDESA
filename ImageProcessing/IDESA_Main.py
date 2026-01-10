@@ -25,7 +25,7 @@ from IDESA_Vision import VisionSystem
 
 
 CONFIG = {
-    "camera_index": 0,
+    "camera_index": 1,
     "marker_size_mm": 40.0,
     "aruco_dict": "DICT_4X4_50",
     "robot_id": 1,
