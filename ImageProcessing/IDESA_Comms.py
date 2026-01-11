@@ -12,15 +12,16 @@ from IDESA_State import IDESAState
 
 
 def pack_5floats(robot_x: float, robot_y: float, robot_yaw_deg: float,
-                 target_x: float, target_y: float) -> bytes:
-    """Pack the five-float payload exactly like the legacy script."""
+                 target_x: float, target_y: float, enable: float = 1.0) -> bytes:
+    """Pack the UDP payload while preserving legacy field order."""
     return struct.pack(
-        "<5f",
+        "<6f",
         float(robot_x),
         float(robot_y),
         float(robot_yaw_deg),
         float(target_x),
         float(target_y),
+        float(enable),
     )
 
 
@@ -56,13 +57,42 @@ class UDPSender:
             self._thread.start()
 
     def stop(self) -> None:
+        should_send_disable = False
         with self._lock:
             if not self._thread:
                 return
+            should_send_disable = True
             self._stop_event.set()
             self._thread.join(timeout=2.0)
             self._thread = None
             self._stop_event.clear()
+
+        if not should_send_disable:
+            return
+
+        disable_payload: Optional[bytes] = None
+        supplier = self._state_supplier
+        if supplier:
+            try:
+                state = supplier()
+            except Exception:
+                state = None
+            if state is not None:
+                disable_payload = pack_5floats(
+                    state.robot_x_mm,
+                    state.robot_y_mm,
+                    state.robot_yaw_deg,
+                    state.target_x_mm,
+                    state.target_y_mm,
+                    enable=0.0,
+                )
+        if disable_payload is None:
+            disable_payload = pack_5floats(0.0, 0.0, 0.0, 0.0, 0.0, enable=0.0)
+
+        try:
+            self._sock.sendto(disable_payload, self._addr)
+        except OSError:
+            pass
 
     def close(self) -> None:
         self.stop()
