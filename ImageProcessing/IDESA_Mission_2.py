@@ -13,7 +13,12 @@ from IDESA_State_2 import IDESAStateStore2
 class TargetQueueController2:
     """Maintains a cyclic list of target IDs and exposes the active target."""
 
-    def __init__(self, state_store: IDESAStateStore2, switch_radius_mm: float = 150.0) -> None:
+    def __init__(
+        self,
+        state_store: IDESAStateStore2,
+        switch_radius_mm: float = 150.0,
+        available_target_ids: Sequence[int] | None = None,
+    ) -> None:
         self._state_store = state_store
         self._lock = Lock()
         self._stop_event = Event()
@@ -24,7 +29,12 @@ class TargetQueueController2:
         self._switch_radius_mm = max(float(switch_radius_mm), 1.0)
         self._last_switch_time = 0.0
 
-        self._state_store.update(switch_radius_mm=self._switch_radius_mm)
+        self._available_target_ids: Tuple[int, ...] = self._sanitize_ids(available_target_ids) or tuple(range(2, 8))
+
+        self._state_store.update(
+            switch_radius_mm=self._switch_radius_mm,
+            available_target_ids=self._available_target_ids,
+        )
 
     # ------------------------------------------------------------------
     # Configuration API
@@ -33,12 +43,17 @@ class TargetQueueController2:
         cleaned = tuple(dict.fromkeys(int(tid) for tid in target_ids if tid is not None))
         if len(cleaned) < 1:
             raise ValueError("Provide at least one target ID.")
+        invalid = tuple(tid for tid in cleaned if tid not in self._available_target_ids)
+        if invalid:
+            raise ValueError(
+                f"Target IDs {invalid} are not in the available set {self._available_target_ids}."
+            )
         with self._lock:
             self._selected_target_ids = cleaned
             self._queue = list(cleaned)
             self._last_switch_time = 0.0
         self._state_store.update(
-            available_target_ids=cleaned,
+            available_target_ids=self._available_target_ids,
             selected_target_ids=cleaned,
             queue_order=cleaned,
         )
@@ -97,6 +112,12 @@ class TargetQueueController2:
                 return
             head = self._queue.pop(0)
             self._queue.append(head)
+
+    @staticmethod
+    def _sanitize_ids(target_ids: Sequence[int] | None) -> Tuple[int, ...]:
+        if not target_ids:
+            return ()
+        return tuple(dict.fromkeys(int(tid) for tid in target_ids if tid is not None))
 
     def _run(self) -> None:
         while not self._stop_event.is_set():

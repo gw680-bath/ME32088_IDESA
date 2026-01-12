@@ -28,6 +28,7 @@ class ParallelConfig2:
     angle_tol_deg: float = 5.0
     dist_tol_mm: float = 100.0
     camera_index: int = 1
+    available_target_ids: Tuple[int, ...] = (2, 3, 4, 5, 6, 7)
     default_target_ids: Tuple[int, ...] = (2, 3)
 
 
@@ -38,7 +39,11 @@ class ParallelRuntime2:
         self.config = config
         self.state_store = IDESAStateStore2()
 
-        self.mission = TargetQueueController2(self.state_store, switch_radius_mm=config.dist_tol_mm)
+        self.mission = TargetQueueController2(
+            self.state_store,
+            switch_radius_mm=config.dist_tol_mm,
+            available_target_ids=config.available_target_ids,
+        )
         if config.default_target_ids:
             self.mission.set_target_ids(config.default_target_ids)
 
@@ -105,12 +110,20 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dist-tol", type=float, default=100.0, help="TRAVELING tolerance in millimetres")
     parser.add_argument("--camera-index", type=int, default=1, help="OpenCV camera index")
     parser.add_argument("--targets", type=int, nargs="*", default=[2, 3], help="Default target IDs")
+    parser.add_argument(
+        "--available-targets",
+        type=int,
+        nargs="*",
+        default=[2, 3, 4, 5, 6, 7],
+        help="IDs that should be available for selection in the GUI",
+    )
     parser.add_argument("--no-gui", action="store_true", help="Run without the Tk dashboard")
     return parser.parse_args()
 
 
 def _build_config(args: argparse.Namespace) -> ParallelConfig2:
     targets = tuple(int(t) for t in args.targets) if args.targets else (2, 3)
+    available = tuple(int(t) for t in args.available_targets) if args.available_targets else (2, 3, 4, 5, 6, 7)
     return ParallelConfig2(
         simulink_ip=args.simulink_ip,
         bind_ip=args.bind_ip,
@@ -121,6 +134,7 @@ def _build_config(args: argparse.Namespace) -> ParallelConfig2:
         angle_tol_deg=args.angle_tol,
         dist_tol_mm=args.dist_tol,
         camera_index=args.camera_index,
+        available_target_ids=available,
         default_target_ids=targets,
     )
 

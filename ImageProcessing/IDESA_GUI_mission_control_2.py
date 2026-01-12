@@ -64,7 +64,7 @@ class IDESAGuiApp2(tk.Tk):
         self._known_target_ids: Tuple[int, ...] = (
             tuple(snap.available_target_ids)
             or tuple(snap.selected_target_ids)
-            or tuple(range(2, 4))
+            or tuple(range(2, 8))
         )
         self._build_target_controls(self._known_target_ids, snap.selected_target_ids)
 
