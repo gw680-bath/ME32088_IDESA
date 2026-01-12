@@ -34,7 +34,7 @@ CONFIG = {
     "robot_id": 1,
     "default_target_ids": [2, 3, 4],
     "available_target_ids": [2, 3, 4, 5, 6, 7],
-    "switch_radius_mm": 300.0,
+    "switch_radius_mm": 100.0,
     "udp_ip": "138.38.226.147",
     "udp_port": 50001,
     "send_hz": 30.0,
@@ -58,7 +58,7 @@ def main() -> int:
     if len(default_target_ids) < 2:
         default_target_ids = available_target_ids[:2]
 
-    switch_radius_mm = float(CONFIG.get("switch_radius_mm", 300.0))
+    switch_radius_mm = float(CONFIG.get("switch_radius_mm", 100.0))
     resolution = CONFIG.get("camera_resolution")
     frame_width: Optional[int] = None
     frame_height: Optional[int] = None
