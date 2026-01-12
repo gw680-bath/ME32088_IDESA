@@ -43,6 +43,7 @@ class VisionSystem:
         frame_width: Optional[int] = None,
         frame_height: Optional[int] = None,
         share_preview_frames: bool = True,
+        preview_scale: float = 1.0,
     ) -> None:
         self._state_store = state_store
         self._camera_index = camera_index
@@ -54,6 +55,11 @@ class VisionSystem:
         self._frame_height = frame_height
         self._share_preview_frames = share_preview_frames
         self._preview_window_name = "Vision - Onboard UDP"
+        try:
+            preview_scale = float(preview_scale)
+        except (TypeError, ValueError):
+            preview_scale = 1.0
+        self._preview_scale = preview_scale if preview_scale > 0.0 else 1.0
 
         self._cap: Optional[cv2.VideoCapture] = None
         self._cap_lock = Lock()
@@ -159,6 +165,13 @@ class VisionSystem:
     def get_tracked_target_ids(self) -> Tuple[int, ...]:
         with self._ids_lock:
             return self._tracked_target_ids
+
+    def _prepare_preview_frame(self, frame: np.ndarray) -> np.ndarray:
+        scale = self._preview_scale
+        if not scale or abs(scale - 1.0) < 1e-3:
+            return frame
+        interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+        return cv2.resize(frame, dsize=None, fx=scale, fy=scale, interpolation=interpolation)
 
     # ------------------------------------------------------------------
     # Internal vision loop
@@ -317,7 +330,8 @@ class VisionSystem:
                 )
 
                 if self._display_preview:
-                    cv2.imshow(self._preview_window_name, annotated)
+                    preview_frame = self._prepare_preview_frame(annotated)
+                    cv2.imshow(self._preview_window_name, preview_frame)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         self._stop_event.set()
 

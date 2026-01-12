@@ -39,6 +39,7 @@ CONFIG = {
     "udp_port": 50001,
     "send_hz": 30.0,
     "display_preview": True,
+    "preview_window_scale": 0.6,
 }
 
 
@@ -78,6 +79,7 @@ def main() -> int:
         display_preview=bool(CONFIG.get("display_preview", True)),
         frame_width=frame_width,
         frame_height=frame_height,
+        preview_scale=float(CONFIG.get("preview_window_scale", 0.6)),
     )
     vision.set_tracked_target_ids(default_target_ids)
 
