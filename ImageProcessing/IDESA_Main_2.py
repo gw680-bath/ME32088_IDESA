@@ -19,7 +19,7 @@ from IDESA_Vision_2 import VisionSystem2
 
 @dataclass
 class ParallelConfig2:
-    simulink_ip: str = "172.26.46.1"
+    simulink_ip: str = "138.38.226.147"
     bind_ip: str = "172.26.46.132"
     send_port: int = 50001
     ack_port: int = 50002
@@ -97,7 +97,7 @@ class ParallelRuntime2:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Parallel IDESA mission controller")
-    parser.add_argument("--simulink-ip", default="172.26.46.1", help="Destination IP for Simulink UDP (port 50001)")
+    parser.add_argument("--simulink-ip", default="138.38.226.147", help="Destination IP for Simulink UDP (port 50001)")
     parser.add_argument("--bind-ip", default="172.26.46.132", help="Local IP for receiving ACKs (port 50002)")
     parser.add_argument("--send-hz", type=float, default=30.0, help="Command send rate")
     parser.add_argument("--ack-timeout", type=float, default=0.5, help="Seconds before comms_lost is asserted")
@@ -153,7 +153,7 @@ def main() -> None:
             runtime.stop()
             return
 
-    gui = create_gui(runtime.state_store)
+    gui = create_gui(runtime.state_store, runtime.mission, runtime.start, runtime.stop)
     try:
         gui.run()
     except KeyboardInterrupt:
