@@ -31,6 +31,7 @@ class IDESAGuiApp2(tk.Tk):
         state_store: IDESAStateStore2,
         mission: TargetQueueController2,
         start_callback: Callable[[], None],
+        robot_stop_callback: Callable[[], None],
         stop_callback: Callable[[], None],
         poll_ms: int = 250,
     ) -> None:
@@ -38,6 +39,7 @@ class IDESAGuiApp2(tk.Tk):
         self._state_store = state_store
         self._mission = mission
         self._start_cb = start_callback
+        self._robot_stop_cb = robot_stop_callback
         self._stop_cb = stop_callback
         self._poll_ms = max(int(poll_ms), 50)
 
@@ -51,7 +53,8 @@ class IDESAGuiApp2(tk.Tk):
         button_frame = ttk.Frame(container)
         button_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
         ttk.Button(button_frame, text="Start", command=self._on_start).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(button_frame, text="Stop", command=self._on_stop).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Robot Stop", command=self._on_robot_stop).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(button_frame, text="Shutdown", command=self._on_shutdown).pack(side=tk.LEFT)
 
         targets_frame = ttk.LabelFrame(container, text=f"Target Selection ({MIN_TARGETS}-{MAX_TARGETS})")
         targets_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
@@ -118,11 +121,19 @@ class IDESAGuiApp2(tk.Tk):
         else:
             self._status_var.set("Subsystems running")
 
-    def _on_stop(self) -> None:
+    def _on_robot_stop(self) -> None:
+        try:
+            self._robot_stop_cb()
+        except Exception as exc:
+            self._status_var.set(f"Robot stop failed: {exc}")
+        else:
+            self._status_var.set("Robot halted; vision/comms active")
+
+    def _on_shutdown(self) -> None:
         try:
             self._stop_cb()
         except Exception as exc:
-            self._status_var.set(f"Stop failed: {exc}")
+            self._status_var.set(f"Shutdown failed: {exc}")
         else:
             self._status_var.set("Subsystems stopped")
 
@@ -227,7 +238,8 @@ def create_gui(
     state_store: IDESAStateStore2,
     mission: TargetQueueController2,
     start_callback: Callable[[], None],
+    robot_stop_callback: Callable[[], None],
     stop_callback: Callable[[], None],
 ) -> IDESAGuiApp2:
     """Factory used by IDESA_Main_2."""
-    return IDESAGuiApp2(state_store, mission, start_callback, stop_callback)
+    return IDESAGuiApp2(state_store, mission, start_callback, robot_stop_callback, stop_callback)

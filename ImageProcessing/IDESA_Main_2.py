@@ -79,6 +79,7 @@ class ParallelRuntime2:
         self._started = False
 
     def start(self) -> None:
+        self.navigation.release_robot_stop()
         if self._started:
             return
         self.mission.start()
@@ -90,6 +91,7 @@ class ParallelRuntime2:
         self._started = True
 
     def stop(self) -> None:
+        self.navigation.engage_robot_stop()
         if not self._started:
             return
         self.sender.close()
@@ -98,6 +100,9 @@ class ParallelRuntime2:
         self.mission.stop()
         self.vision.stop()
         self._started = False
+
+    def robot_stop(self) -> None:
+        self.navigation.engage_robot_stop()
 
 
 def _parse_args() -> argparse.Namespace:
@@ -167,7 +172,7 @@ def main() -> None:
             runtime.stop()
             return
 
-    gui = create_gui(runtime.state_store, runtime.mission, runtime.start, runtime.stop)
+    gui = create_gui(runtime.state_store, runtime.mission, runtime.start, runtime.robot_stop, runtime.stop)
     try:
         gui.run()
     except KeyboardInterrupt:

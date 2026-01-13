@@ -39,6 +39,7 @@ class NavigationController2:
         self._thread: Thread | None = None
         self._command_lock = Lock()
         self._latest_command = NavCommand2(0.0, 0.0, 0.0, seq=0, timestamp=time.time())
+        self._robot_stop = Event()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -65,6 +66,18 @@ class NavigationController2:
     def get_command(self) -> NavCommand2:
         with self._command_lock:
             return self._latest_command
+
+    def engage_robot_stop(self) -> None:
+        """Force outbound commands to zero without stopping other subsystems."""
+
+        self._robot_stop.set()
+        self._publish_manual_stop_state()
+
+    def release_robot_stop(self) -> None:
+        self._robot_stop.clear()
+
+    def is_robot_stop_active(self) -> bool:
+        return self._robot_stop.is_set()
 
     # ------------------------------------------------------------------
     # Internal logic
@@ -103,7 +116,15 @@ class NavigationController2:
         elif state == NavState2.TRAVELING and distance < self._dist_tol_mm:
             state = NavState2.WAITING
 
+        manual_stop_active = self._robot_stop.is_set()
+        if manual_stop_active:
+            state = NavState2.WAITING
+            distance = 0.0
+            angle_error = 0.0
+
         enable = 1.0 if state != NavState2.WAITING else 0.0
+        if manual_stop_active:
+            enable = 0.0
 
         self._current_state = state
         self._state_store.update(
@@ -120,3 +141,15 @@ class NavigationController2:
             seq=0,
             timestamp=now,
         )
+
+    def _publish_manual_stop_state(self) -> None:
+        now = time.time()
+        zero_command = NavCommand2(0.0, 0.0, 0.0, seq=0, timestamp=now)
+        self._state_store.update(
+            distance_error_mm=0.0,
+            angle_error_deg=0.0,
+            enable=0.0,
+            python_state=NavState2.WAITING,
+        )
+        with self._command_lock:
+            self._latest_command = zero_command
