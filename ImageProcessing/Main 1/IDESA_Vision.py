@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import time
+from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -74,14 +75,19 @@ class VisionSystem:
         self._preview_lock = Lock()
         self._latest_frame: Optional[np.ndarray] = None
 
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        calib_path = os.path.join(script_dir, "Calibration.npz")
-        if not os.path.exists(calib_path):
+        script_dir = Path(__file__).resolve().parent
+        # Support both the legacy layout and the parallel stack's shared calibration file.
+        calib_candidates = [
+            script_dir / "Calibration.npz",
+            script_dir.parent / "Calibration.npz",
+        ]
+        calib_path = next((path for path in calib_candidates if path.exists()), None)
+        if not calib_path:
             raise FileNotFoundError(
-                f"Calibration file not found: {calib_path}\n"
-                "Place Calibration.npz (with arrays 'CM' and 'dist_coef') next to IDESA_Vision.py."
+                "Calibration file not found in expected locations.\n"
+                f"Checked: {', '.join(str(path) for path in calib_candidates)}"
             )
-        self._camera_matrix, self._dist_coef = load_calibration_npz(calib_path)
+        self._camera_matrix, self._dist_coef = load_calibration_npz(str(calib_path))
 
         if not hasattr(aruco, dict_name):
             raise ValueError(f"Unknown ArUco dictionary: {dict_name}")
