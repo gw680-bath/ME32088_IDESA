@@ -4,7 +4,7 @@ set -euo pipefail
 
 # ===== User options =====
 BUS=1
-PERIOD=0.5          # seconds between prints
+PERIOD=0.1         # seconds between prints
 INIT=1            # set to 0 to skip register setup
 LOGFILE=""        # set to a path to also append CSV (e.g., /home/pi/lsm9ds1.csv)
 
