@@ -14,6 +14,7 @@ MAX_TARGETS = 6
 
 DISPLAY_FIELDS = (
     ("Python State", "python_state"),
+    ("Current Target", "active_target_id"),
     ("Distance Error [mm]", "distance_error_mm"),
     ("Angle Error [deg]", "angle_error_deg"),
     ("Enable", "enable"),
@@ -216,6 +217,7 @@ class IDESAGuiApp2(tk.Tk):
             self._radius_blocked = False
         values = {
             "python_state": snap.python_state.value,
+            "active_target_id": f"ID {snap.active_target_id}" if snap.active_target_id >= 0 else "-",
             "distance_error_mm": f"{snap.distance_error_mm:8.1f}",
             "angle_error_deg": f"{snap.angle_error_deg:8.1f}",
             "enable": f"{snap.enable:4.1f}",
