@@ -40,6 +40,10 @@ class NavigationController2:
         self._command_lock = Lock()
         self._latest_command = NavCommand2(0.0, 0.0, 0.0, seq=0, timestamp=time.time())
         self._robot_stop = Event()
+        now = time.time()
+        self._last_robot_seen = now
+        self._last_target_seen = now
+        self._loss_timeout_s = 2.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -98,6 +102,13 @@ class NavigationController2:
         angle_error = _wrap_to_180(desired_heading - snap.robot_yaw_deg)
 
         now = time.time()
+        if snap.robot_detected:
+            self._last_robot_seen = now
+        if snap.target_detected:
+            self._last_target_seen = now
+        robot_stale = (now - self._last_robot_seen) >= self._loss_timeout_s
+        target_stale = (now - self._last_target_seen) >= self._loss_timeout_s
+        simultaneous_loss = robot_stale and target_stale
         vision_issue = snap.vision_lost or not snap.robot_detected or not snap.target_detected
         comms_issue = snap.comms_lost
 
@@ -115,6 +126,11 @@ class NavigationController2:
             state = NavState2.TRAVELING
         elif state == NavState2.TRAVELING and distance < self._dist_tol_mm:
             state = NavState2.WAITING
+
+        if simultaneous_loss:
+            state = NavState2.WAITING
+            distance = 0.0
+            angle_error = 0.0
 
         manual_stop_active = self._robot_stop.is_set()
         if manual_stop_active:
