@@ -13,6 +13,7 @@ import math
 import time
 from pathlib import Path
 from threading import Event, Lock, Thread
+from typing import Iterable
 
 import cv2
 import cv2.aruco as aruco
@@ -47,7 +48,7 @@ class VisionSystem3:
         self,
         state,
         state_lock: Lock,
-        camera_index: int = 0,
+        camera_index: int | str = 1,
         marker_size_mm: float = 100.0,
         dict_name: str = "DICT_4X4_50",
         preview_window_name: str = "IDESA Camera",
@@ -59,6 +60,14 @@ class VisionSystem3:
         self.marker_size_mm = float(marker_size_mm)
         self.preview_window_name = preview_window_name
         self.preferred_res = preferred_res
+        self._camera_source_variants = self._build_camera_source_variants(camera_index)
+        self._backend_priority: tuple[int, ...] = (
+            getattr(cv2, "CAP_DSHOW", cv2.CAP_ANY),
+            getattr(cv2, "CAP_MSMF", cv2.CAP_ANY),
+            cv2.CAP_ANY,
+        )
+        self._active_backend: int | None = None
+        self._active_source: int | str | None = None
 
         if not hasattr(aruco, dict_name):
             raise ValueError(f"Unknown ArUco dict: {dict_name}")
@@ -92,10 +101,7 @@ class VisionSystem3:
             self.state.robot_xy_mm = None
 
     def _loop(self) -> None:
-        cap = cv2.VideoCapture(self.camera_index)
-        if not cap.isOpened():
-            cap.release()
-            raise RuntimeError(f"Could not open camera index {self.camera_index}")
+        cap = self._open_camera_capture()
 
         # Try set wide resolution
         w, h = self.preferred_res
@@ -223,3 +229,45 @@ class VisionSystem3:
             cv2.destroyWindow(self.preview_window_name)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Camera helpers
+    # ------------------------------------------------------------------
+    def _build_camera_source_variants(self, camera_index: int | str) -> tuple[int | str, ...]:
+        if isinstance(camera_index, str):
+            normalized = camera_index.strip()
+            variants: list[int | str] = []
+            if normalized and not normalized.lower().startswith("video="):
+                variants.append(f"video={normalized}")
+            variants.append(normalized)
+            return tuple(variants)
+        return (int(camera_index),)
+
+    def _open_camera_capture(self) -> cv2.VideoCapture:
+        attempts: list[str] = []
+        for source in self._camera_source_variants:
+            for backend in self._backend_priority:
+                cap = cv2.VideoCapture(source, backend)
+                if cap.isOpened():
+                    self._active_backend = backend
+                    self._active_source = source
+                    backend_name = self._backend_name(backend)
+                    print(
+                        f"[VisionSystem3] Using camera source {source!r} via {backend_name}."
+                    )
+                    return cap
+                cap.release()
+                attempts.append(f"{source!r} via {self._backend_name(backend)}")
+        raise RuntimeError(
+            "Could not open any camera source. Tried: " + ", ".join(attempts)
+        )
+
+    @staticmethod
+    def _backend_name(backend: int | None) -> str:
+        mapping = {
+            getattr(cv2, "CAP_DSHOW", -1): "CAP_DSHOW",
+            getattr(cv2, "CAP_MSMF", -1): "CAP_MSMF",
+            getattr(cv2, "CAP_V4L2", -1): "CAP_V4L2",
+            getattr(cv2, "CAP_ANY", -1): "CAP_ANY",
+        }
+        return mapping.get(backend, str(backend))
