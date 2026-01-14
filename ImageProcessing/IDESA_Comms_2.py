@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from IDESA_State_2 import IDESAStateStore2
 from IDESA_Types_2 import NavCommand2
 
-NAV_PACKET_STRUCT = struct.Struct("<I3f")
+NAV_PACKET_STRUCT = struct.Struct("<I2f")
 ACK_PACKET_STRUCT = struct.Struct("<I")
 
 
@@ -100,7 +100,6 @@ class UDPSender2:
                 seq,
                 float(command.distance_error_mm),
                 float(command.angle_error_deg),
-                float(command.enable),
             )
 
             sent_at = time.time()
