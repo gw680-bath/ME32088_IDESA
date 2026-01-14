@@ -45,7 +45,7 @@ class IDESAGuiApp2(tk.Tk):
         self._poll_ms = max(int(poll_ms), 50)
 
         self.title("IDESA Mission Control 2")
-        self.geometry("520x360")
+        self.geometry("1920, 1080")
         self.resizable(False, False)
 
         container = ttk.Frame(self, padding=12)
