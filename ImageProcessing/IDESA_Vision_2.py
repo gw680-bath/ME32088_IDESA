@@ -56,6 +56,14 @@ class VisionSystem2:
         self._frame_width = frame_width
         self._frame_height = frame_height
         self._share_preview_frames = share_preview_frames
+        self._actual_frame_width: Optional[float] = None
+        self._actual_frame_height: Optional[float] = None
+        self._wide_resolution_candidates: Tuple[Tuple[int, int], ...] = (
+            (1920, 1080),
+            (1600, 900),
+            (1280, 720),
+            (960, 540),
+        )
         self._preview_window_name = "Vision - Parallel"
         try:
             preview_scale = float(preview_scale)
@@ -112,13 +120,10 @@ class VisionSystem2:
             if self._cap and self._cap.isOpened():
                 return
             cap = cv2.VideoCapture(self._camera_index)
-            if self._frame_width:
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self._frame_width))
-            if self._frame_height:
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self._frame_height))
             if not cap.isOpened():
                 cap.release()
                 raise RuntimeError(f"Could not open camera index {self._camera_index}")
+            self._apply_frame_dimensions(cap)
             self._cap = cap
 
     def stop_camera(self) -> None:
@@ -187,6 +192,53 @@ class VisionSystem2:
             return frame
         interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
         return cv2.resize(frame, dsize=None, fx=scale, fy=scale, interpolation=interpolation)
+
+    def _apply_frame_dimensions(self, cap: cv2.VideoCapture) -> None:
+        if self._frame_width or self._frame_height:
+            if self._frame_width:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self._frame_width))
+            if self._frame_height:
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self._frame_height))
+        else:
+            self._apply_preferred_wide_resolution(cap)
+
+        self._actual_frame_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        self._actual_frame_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        if (
+            self._frame_width
+            and self._actual_frame_width
+            and abs(self._actual_frame_width - float(self._frame_width)) > 1.0
+        ):
+            print(
+                f"[VisionSystem2] Requested width {self._frame_width} px but capture reports {self._actual_frame_width:.0f} px."
+            )
+        if (
+            self._frame_height
+            and self._actual_frame_height
+            and abs(self._actual_frame_height - float(self._frame_height)) > 1.0
+        ):
+            print(
+                f"[VisionSystem2] Requested height {self._frame_height} px but capture reports {self._actual_frame_height:.0f} px."
+            )
+
+    def _apply_preferred_wide_resolution(self, cap: cv2.VideoCapture) -> None:
+        for width, height in self._wide_resolution_candidates:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(width))
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(height))
+            actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            if abs(actual_w - float(width)) <= 2.0 and abs(actual_h - float(height)) <= 2.0:
+                self._frame_width = width
+                self._frame_height = height
+                print(f"[VisionSystem2] Using preferred camera resolution {width}x{height}.")
+                return
+
+        actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        print(
+            "[VisionSystem2] Camera did not accept preferred wide resolutions. "
+            f"Continuing with reported size {actual_w:.0f}x{actual_h:.0f}."
+        )
 
     def _tracking_loop(self) -> None:
         last_robot_x = 0.0
