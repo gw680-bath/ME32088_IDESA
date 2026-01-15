@@ -57,6 +57,9 @@ class IDESAState3:
     manual_pulse_pending: bool = False
     manual_pulse_distance_mm: float = 0.0
     manual_pulse_angle_deg: float = 0.0
+    last_manual_distance_mm: float = 0.0
+    last_manual_angle_deg: float = 0.0
+    last_manual_timestamp: float = 0.0
 
     # Final commanded outputs (what Comms will send)
     cmd_distance_mm: float = 0.0

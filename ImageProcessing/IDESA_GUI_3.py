@@ -203,24 +203,35 @@ class IDESAGuiApp3(tk.Tk):
     # Telemetry refresh
     # -------------------
     def _refresh(self) -> None:
+        now = time.time()
         with self.lock:
             robot_visible = bool(self.state.robot_visible)
             active_id = self.state.active_target_id
             active_visible = False
             if active_id is not None:
                 last_seen = self.state.targets_last_seen.get(active_id, 0.0)
-                active_visible = (time.time() - last_seen) <= 2.0
+                active_visible = (now - last_seen) <= 2.0
 
-            dist = float(getattr(self.state, "nav_distance_mm", 0.0))
-            ang = float(getattr(self.state, "nav_angle_deg", 0.0))
+            cmd_dist = float(getattr(self.state, "cmd_distance_mm", 0.0))
+            cmd_ang = float(getattr(self.state, "cmd_angle_deg", 0.0))
             mode = str(getattr(self.state, "control_mode", "AUTO")).upper()
             sending = bool(getattr(self.state, "sending_enabled", False))
+            last_manual_dist = float(getattr(self.state, "last_manual_distance_mm", 0.0))
+            last_manual_ang = float(getattr(self.state, "last_manual_angle_deg", 0.0))
+            last_manual_time = float(getattr(self.state, "last_manual_timestamp", 0.0))
+
+        display_dist = cmd_dist
+        display_ang = cmd_ang
+        if mode == "MANUAL":
+            if (now - last_manual_time) <= 1.0 and abs(display_dist) < 1e-3 and abs(display_ang) < 1e-3:
+                display_dist = last_manual_dist
+                display_ang = last_manual_ang
 
         self._labels["robot_visible"].configure(text="YES" if robot_visible else "NO")
         self._labels["target_visible"].configure(text="YES" if active_visible else "NO")
         self._labels["active_target_id"].configure(text=str(active_id) if active_id is not None else "-")
-        self._labels["distance_mm"].configure(text=f"{dist:.1f}")
-        self._labels["angle_deg"].configure(text=f"{ang:.1f}")
+        self._labels["distance_mm"].configure(text=f"{display_dist:.1f}")
+        self._labels["angle_deg"].configure(text=f"{display_ang:.1f}")
         self._labels["control_mode"].configure(text=mode)
         self._labels["sending_enabled"].configure(text="YES" if sending else "NO")
 

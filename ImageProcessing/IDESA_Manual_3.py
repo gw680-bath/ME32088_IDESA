@@ -11,6 +11,7 @@ because Main clears manual_pulse_pending after consuming it.
 
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from threading import Lock
 
@@ -37,6 +38,10 @@ class ManualController3:
             self.state.manual_pulse_distance_mm = float(dist_mm)
             self.state.manual_pulse_angle_deg = float(ang_deg)
             self.state.manual_pulse_pending = True
+            now = time.time()
+            self.state.last_manual_distance_mm = float(dist_mm)
+            self.state.last_manual_angle_deg = float(ang_deg)
+            self.state.last_manual_timestamp = now
 
     def _on_up(self, _event) -> None:
         self._arm_pulse(200.0, 0.0)
