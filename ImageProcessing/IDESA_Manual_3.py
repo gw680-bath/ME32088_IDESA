@@ -44,10 +44,10 @@ class ManualController3:
             self.state.last_manual_timestamp = now
 
     def _on_up(self, _event) -> None:
-        self._arm_pulse(200.0, 0.0)
+        self._arm_pulse(2000.0, 0.0)
 
     def _on_left(self, _event) -> None:
-        self._arm_pulse(0.0, +90.0)
+        self._arm_pulse(10.0, -45.0)
 
     def _on_right(self, _event) -> None:
-        self._arm_pulse(0.0, -90.0)
+        self._arm_pulse(10.0, +45.0)
