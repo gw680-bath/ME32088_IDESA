@@ -21,6 +21,11 @@ class NavigationSystem3:
         self.hold_zero_s = float(hold_zero_s)
 
         self._queue_index = 0
+        self._alpha_dist = 0.35
+        self._alpha_ang = 0.45
+        self._dist_filt = 0.0
+        self._ang_filt = 0.0
+        self._filt_init = False
 
     def update(self, now: float) -> None:
         with self.lock:
@@ -29,6 +34,7 @@ class NavigationSystem3:
                 self.state.active_target_id = None
                 self.state.nav_distance_mm = 0.0
                 self.state.nav_angle_deg = 0.0
+                self._filt_init = False
                 return
 
             # Ensure queue index valid
@@ -44,6 +50,7 @@ class NavigationSystem3:
             if now < float(self.state.hold_zero_until):
                 self.state.nav_distance_mm = 0.0
                 self.state.nav_angle_deg = 0.0
+                self._filt_init = False
                 return
 
             # Check "seen within last 2s" rule for robot + active target
@@ -54,6 +61,7 @@ class NavigationSystem3:
             if not (robot_ok and target_ok):
                 self.state.nav_distance_mm = 0.0
                 self.state.nav_angle_deg = 0.0
+                self._filt_init = False
                 return
 
             rx, ry = self.state.robot_xy_mm
@@ -84,14 +92,24 @@ class NavigationSystem3:
                 self.state.nav_distance_mm = 0.0
                 self.state.nav_angle_deg = 0.0
                 self.state.hold_zero_until = now + self.hold_zero_s
+                self._filt_init = False
 
                 # advance target for next cycle
                 self._queue_index = (selected.index(active_id) + 1) % len(selected)
                 self.state.active_target_id = selected[self._queue_index]
                 return
 
-            self.state.nav_distance_mm = float(dist)
-            self.state.nav_angle_deg = float(ang_err)
+            if not self._filt_init:
+                self._dist_filt = float(dist)
+                self._ang_filt = float(ang_err)
+                self._filt_init = True
+            else:
+                self._dist_filt = self._alpha_dist * float(dist) + (1.0 - self._alpha_dist) * self._dist_filt
+                delta = _wrap_deg(float(ang_err) - self._ang_filt)
+                self._ang_filt = _wrap_deg(self._ang_filt + self._alpha_ang * delta)
+
+            self.state.nav_distance_mm = float(self._dist_filt)
+            self.state.nav_angle_deg = float(self._ang_filt)
 
 
 def _wrap_deg(a: float) -> float:
