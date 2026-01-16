@@ -28,7 +28,10 @@ class IDESAState3:
     # GUI toggles
     camera_on: bool = False
     sending_enabled: bool = False  # Start/Stop controls UDP send
-    control_mode: str = "AUTO"  # "AUTO", "MANUAL", or "RECOVERY"
+    control_mode: str = "AUTO"  # "AUTO" or "MANUAL"
+    auto_submode: str = "MISSION"  # "MISSION" or "RECOVERY"
+    estop_ok: bool = True
+    reset_pulse_pending: bool = False
 
     # Targets
     selected_targets: list[int] = field(default_factory=lambda: [2, 3])
@@ -104,18 +107,15 @@ def main() -> None:
 
         # Arbitration: pick what gets sent
         with state_lock:
-            state.cmd_state_flag = 0.0
+            mode = str(state.control_mode).upper()
+            submode = str(state.auto_submode).upper()
+            state.cmd_state_flag = 1.0 if (mode == "AUTO" and submode == "RECOVERY") else 0.0
+
             if not state.sending_enabled:
                 state.cmd_distance_mm = 0.0
                 state.cmd_angle_deg = 0.0
-                state.cmd_state_flag = 0.0
             else:
-                mode = str(state.control_mode).upper()
-                if mode == "RECOVERY":
-                    state.cmd_distance_mm = 0.0
-                    state.cmd_angle_deg = 0.0
-                    state.cmd_state_flag = 1.0
-                elif mode == "MANUAL":
+                if mode == "MANUAL":
                     if state.manual_pulse_pending:
                         # One-shot pulse, then revert to zeros automatically
                         state.cmd_distance_mm = float(state.manual_pulse_distance_mm)
@@ -124,11 +124,21 @@ def main() -> None:
                     else:
                         state.cmd_distance_mm = 0.0
                         state.cmd_angle_deg = 0.0
+                    state.reset_pulse_pending = False
                 else:
-                    # AUTO
-                    state.cmd_distance_mm = float(state.nav_distance_mm)
-                    state.cmd_angle_deg = float(state.nav_angle_deg)
-                    state.cmd_state_flag = 0.0
+                    if state.reset_pulse_pending:
+                        state.cmd_distance_mm = 1.0
+                        state.cmd_angle_deg = 0.0
+                        state.reset_pulse_pending = False
+                    elif submode == "RECOVERY":
+                        state.cmd_distance_mm = 0.0
+                        state.cmd_angle_deg = 0.0
+                    else:
+                        state.cmd_distance_mm = float(state.nav_distance_mm)
+                        state.cmd_angle_deg = float(state.nav_angle_deg)
+
+            if mode == "MANUAL" and not state.sending_enabled:
+                state.reset_pulse_pending = False
 
         # Comms tick (sends at fixed rate if enabled)
         comms.tick(now)

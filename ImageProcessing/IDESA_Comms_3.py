@@ -1,9 +1,9 @@
 """
 IDESA_Comms_3.py
 UDP comms:
-- Sends two float32 (distance_mm, angle_deg) as struct '<2f' to port 50001
-- Sends one float32 (state_flag) as struct '<f' to port 50003
-- Sends only when sending_enabled=True; otherwise sends zeros (burst on stop/camera off)
+- Sends three float32 (distance_mm, angle_deg, state_flag) as struct '<3f' to port 50001
+- Sends two float32 (state_flag, estop_ok) as struct '<2f' to port 50003 every tick
+- Distance/angle obey sending_enabled; state_flag and estop packet is always sent
 """
 
 from __future__ import annotations
@@ -73,21 +73,25 @@ class UDPComms3:
             enabled = bool(getattr(self.state, "sending_enabled", False))
             dist = float(getattr(self.state, "cmd_distance_mm", 0.0)) if enabled else 0.0
             ang = float(getattr(self.state, "cmd_angle_deg", 0.0)) if enabled else 0.0
-            flag = float(getattr(self.state, "cmd_state_flag", 0.0)) if enabled else 0.0
+            flag = float(getattr(self.state, "cmd_state_flag", 0.0))
+            estop_val = 1.0 if bool(getattr(self.state, "estop_ok", True)) else 0.0
 
-        self._send_cmd(dist, ang)
-        self._send_state(flag)
+        self._send_cmd(dist, ang, flag)
+        self._send_state(flag, estop_val)
 
     def send_zeros_burst(self, count: int = 5, spacing_s: float = 0.05) -> None:
         # A short burst helps ensure Simulink sees the stop command
         for _ in range(max(1, int(count))):
-            self._send_cmd(0.0, 0.0)
-            self._send_state(0.0)
+            with self.lock:
+                flag = float(getattr(self.state, "cmd_state_flag", 0.0))
+                estop_val = 1.0 if bool(getattr(self.state, "estop_ok", True)) else 0.0
+            self._send_cmd(0.0, 0.0, 0.0)
+            self._send_state(flag, estop_val)
             time.sleep(max(0.0, float(spacing_s)))
 
-    def _send_cmd(self, dist_mm: float, ang_deg: float) -> None:
+    def _send_cmd(self, dist_mm: float, ang_deg: float, state_flag: float) -> None:
         self.ensure_socket()
-        payload = struct.pack("<2f", float(dist_mm), float(ang_deg))
+        payload = struct.pack("<3f", float(dist_mm), float(ang_deg), float(state_flag))
         try:
             assert self._sock is not None
             self._sock.sendto(payload, (self.pi_ip, self.pi_port))
@@ -95,11 +99,11 @@ class UDPComms3:
             # Keep silent to avoid spamming; GUI shows behaviour via zeros anyway
             pass
 
-    def _send_state(self, state_flag: float) -> None:
+    def _send_state(self, state_flag: float, estop_val: float) -> None:
         if self.pi_state_port is None:
             return
         self.ensure_state_socket()
-        payload = struct.pack("<f", float(state_flag))
+        payload = struct.pack("<2f", float(state_flag), float(estop_val))
         try:
             assert self._state_sock is not None
             self._state_sock.sendto(payload, (self.pi_ip, self.pi_state_port))

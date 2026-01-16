@@ -54,7 +54,9 @@ class IDESAGuiApp3(tk.Tk):
         ttk.Button(top, text="Camera ON", command=self._camera_on).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(top, text="Camera OFF", command=self._camera_off).pack(side=tk.LEFT, padx=(0, 18))
         ttk.Button(top, text="Start", command=self._start).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(top, text="Stop", command=self._stop).pack(side=tk.LEFT)
+        ttk.Button(top, text="Stop", command=self._stop).pack(side=tk.LEFT, padx=(0, 18))
+        ttk.Button(top, text="Emergency Stop", command=self._estop).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(top, text="Reset E-Stop", command=self._reset_estop).pack(side=tk.LEFT)
 
         # Row 1 col 0: Controls panel
         controls = ttk.LabelFrame(root, text="Controls")
@@ -63,22 +65,44 @@ class IDESAGuiApp3(tk.Tk):
         # Mode selection
         mode_frame = ttk.Frame(controls)
         mode_frame.pack(fill=tk.X, pady=(6, 8))
-        ttk.Label(mode_frame, text="Control Mode").pack(anchor="w")
+        ttk.Label(mode_frame, text="Main Mode").pack(anchor="w")
 
-        self._mode_var = tk.StringVar(value="AUTO")
-        ttk.Radiobutton(mode_frame, text="AUTO", value="AUTO", variable=self._mode_var, command=self._on_mode).pack(
-            side=tk.LEFT, padx=(0, 10)
-        )
-        ttk.Radiobutton(mode_frame, text="MANUAL", value="MANUAL", variable=self._mode_var, command=self._on_mode).pack(
-            side=tk.LEFT
-        )
+        initial_mode = "AUTO" if str(getattr(self.state, "control_mode", "AUTO")).upper() == "AUTO" else "MANUAL"
+        self._main_mode_var = tk.StringVar(value=initial_mode)
         ttk.Radiobutton(
             mode_frame,
-            text="RECOVERY",
-            value="RECOVERY",
-            variable=self._mode_var,
+            text="AUTOMATIC",
+            value="AUTO",
+            variable=self._main_mode_var,
             command=self._on_mode,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Radiobutton(
+            mode_frame,
+            text="MANUAL",
+            value="MANUAL",
+            variable=self._main_mode_var,
+            command=self._on_mode,
+        ).pack(side=tk.LEFT)
+
+        auto_mode_frame = ttk.Frame(controls)
+        auto_mode_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(auto_mode_frame, text="Automatic Submode").pack(anchor="w")
+        initial_submode = "RECOVERY" if str(getattr(self.state, "auto_submode", "MISSION")).upper() == "RECOVERY" else "MISSION"
+        self._auto_submode_var = tk.StringVar(value=initial_submode)
+        ttk.Radiobutton(
+            auto_mode_frame,
+            text="Mission",
+            value="MISSION",
+            variable=self._auto_submode_var,
+            command=self._on_auto_submode,
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Radiobutton(
+            auto_mode_frame,
+            text="Recovery",
+            value="RECOVERY",
+            variable=self._auto_submode_var,
+            command=self._on_auto_submode,
+        ).pack(side=tk.LEFT)
 
         # Target selection
         targets_frame = ttk.LabelFrame(controls, text="Targets (2–7)")
@@ -120,7 +144,9 @@ class IDESAGuiApp3(tk.Tk):
             ("Active target ID", "active_target_id"),
             ("Distance [mm]", "distance_mm"),
             ("Angle error [deg]", "angle_deg"),
-            ("Mode", "control_mode"),
+            ("Main mode", "main_mode"),
+            ("Auto submode", "auto_submode"),
+            ("E-Stop OK", "estop_ok"),
             ("Sending enabled", "sending_enabled"),
         ]
         for r, (label, key) in enumerate(fields):
@@ -172,12 +198,32 @@ class IDESAGuiApp3(tk.Tk):
         except Exception as exc:
             self._status.set(f"Stop failed: {exc}")
 
+    def _estop(self) -> None:
+        with self.lock:
+            self.state.estop_ok = False
+        self._status.set("EMERGENCY STOP active (signal 0)")
+
+    def _reset_estop(self) -> None:
+        with self.lock:
+            self.state.estop_ok = True
+        self._status.set("E-Stop reset (signal 1)")
+
     # -------------------
     # Controls callbacks
     # -------------------
     def _on_mode(self) -> None:
+        new_mode = self._main_mode_var.get().upper()
         with self.lock:
-            self.state.control_mode = self._mode_var.get().upper()
+            prev_mode = str(getattr(self.state, "control_mode", "AUTO")).upper()
+            self.state.control_mode = new_mode
+            if new_mode == "AUTO" and prev_mode != "AUTO":
+                self.state.reset_pulse_pending = True
+            elif new_mode == "MANUAL":
+                self.state.reset_pulse_pending = False
+
+    def _on_auto_submode(self) -> None:
+        with self.lock:
+            self.state.auto_submode = self._auto_submode_var.get().upper()
 
     def _on_targets(self) -> None:
         selected = [tid for tid, var in self._target_vars.items() if var.get()]
@@ -222,7 +268,9 @@ class IDESAGuiApp3(tk.Tk):
             cmd_dist = float(getattr(self.state, "cmd_distance_mm", 0.0))
             cmd_ang = float(getattr(self.state, "cmd_angle_deg", 0.0))
             mode = str(getattr(self.state, "control_mode", "AUTO")).upper()
+            auto_submode = str(getattr(self.state, "auto_submode", "MISSION")).upper()
             sending = bool(getattr(self.state, "sending_enabled", False))
+            estop_ok = bool(getattr(self.state, "estop_ok", True))
             last_manual_dist = float(getattr(self.state, "last_manual_distance_mm", 0.0))
             last_manual_ang = float(getattr(self.state, "last_manual_angle_deg", 0.0))
             last_manual_time = float(getattr(self.state, "last_manual_timestamp", 0.0))
@@ -239,7 +287,9 @@ class IDESAGuiApp3(tk.Tk):
         self._labels["active_target_id"].configure(text=str(active_id) if active_id is not None else "-")
         self._labels["distance_mm"].configure(text=f"{display_dist:.1f}")
         self._labels["angle_deg"].configure(text=f"{display_ang:.1f}")
-        self._labels["control_mode"].configure(text=mode)
+        self._labels["main_mode"].configure(text="AUTOMATIC" if mode == "AUTO" else "MANUAL")
+        self._labels["auto_submode"].configure(text=auto_submode)
+        self._labels["estop_ok"].configure(text="OK" if estop_ok else "TRIPPED")
         self._labels["sending_enabled"].configure(text="YES" if sending else "NO")
 
         self.after(self._poll_ms, self._refresh)
