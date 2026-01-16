@@ -28,7 +28,7 @@ class IDESAState3:
     # GUI toggles
     camera_on: bool = False
     sending_enabled: bool = False  # Start/Stop controls UDP send
-    control_mode: str = "AUTO"  # "AUTO" or "MANUAL"
+    control_mode: str = "AUTO"  # "AUTO", "MANUAL", or "RECOVERY"
 
     # Targets
     selected_targets: list[int] = field(default_factory=lambda: [2, 3])
@@ -64,6 +64,7 @@ class IDESAState3:
     # Final commanded outputs (what Comms will send)
     cmd_distance_mm: float = 0.0
     cmd_angle_deg: float = 0.0
+    cmd_state_flag: float = 0.0
 
 
 def main() -> None:
@@ -96,11 +97,18 @@ def main() -> None:
 
         # Arbitration: pick what gets sent
         with state_lock:
+            state.cmd_state_flag = 0.0
             if not state.sending_enabled:
                 state.cmd_distance_mm = 0.0
                 state.cmd_angle_deg = 0.0
+                state.cmd_state_flag = 0.0
             else:
-                if state.control_mode.upper() == "MANUAL":
+                mode = str(state.control_mode).upper()
+                if mode == "RECOVERY":
+                    state.cmd_distance_mm = 0.0
+                    state.cmd_angle_deg = 0.0
+                    state.cmd_state_flag = 1.0
+                elif mode == "MANUAL":
                     if state.manual_pulse_pending:
                         # One-shot pulse, then revert to zeros automatically
                         state.cmd_distance_mm = float(state.manual_pulse_distance_mm)
@@ -113,6 +121,7 @@ def main() -> None:
                     # AUTO
                     state.cmd_distance_mm = float(state.nav_distance_mm)
                     state.cmd_angle_deg = float(state.nav_angle_deg)
+                    state.cmd_state_flag = 0.0
 
         # Comms tick (sends at fixed rate if enabled)
         comms.tick(now)
@@ -145,6 +154,7 @@ def _stop_sending(state: IDESAState3, lock: Lock, comms: UDPComms3) -> None:
         state.sending_enabled = False
         state.cmd_distance_mm = 0.0
         state.cmd_angle_deg = 0.0
+        state.cmd_state_flag = 0.0
     comms.send_zeros_burst()
 
 
@@ -159,6 +169,7 @@ def _camera_off_all(state: IDESAState3, lock: Lock, vision: VisionSystem3, comms
         state.sending_enabled = False
         state.cmd_distance_mm = 0.0
         state.cmd_angle_deg = 0.0
+        state.cmd_state_flag = 0.0
     comms.send_zeros_burst()
 
 

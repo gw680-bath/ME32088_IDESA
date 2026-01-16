@@ -72,6 +72,13 @@ class IDESAGuiApp3(tk.Tk):
         ttk.Radiobutton(mode_frame, text="MANUAL", value="MANUAL", variable=self._mode_var, command=self._on_mode).pack(
             side=tk.LEFT
         )
+        ttk.Radiobutton(
+            mode_frame,
+            text="RECOVERY",
+            value="RECOVERY",
+            variable=self._mode_var,
+            command=self._on_mode,
+        ).pack(side=tk.LEFT, padx=(10, 0))
 
         # Target selection
         targets_frame = ttk.LabelFrame(controls, text="Targets (2–7)")
