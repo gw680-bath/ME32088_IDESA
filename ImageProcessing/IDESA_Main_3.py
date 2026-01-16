@@ -76,7 +76,7 @@ def main() -> None:
     comms = UDPComms3(state, state_lock, pi_ip="138.38.226.147", pi_port=50001, hz=2.0)
     manual = ManualController3(state, state_lock)
 
-    # GUI (Tk mainloop lives here)
+    # GUI (Tk mainloop lives here) 
     app = IDESAGuiApp3(
         state=state,
         state_lock=state_lock,

@@ -47,7 +47,7 @@ class ManualController3:
         self._arm_pulse(2000.0, 0.0)
 
     def _on_left(self, _event) -> None:
-        self._arm_pulse(10.0, -45.0)
+        self._arm_pulse(10.0, -90.0)
 
     def _on_right(self, _event) -> None:
-        self._arm_pulse(10.0, +45.0)
+        self._arm_pulse(10.0, +90.0)
