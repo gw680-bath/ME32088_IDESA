@@ -74,7 +74,14 @@ def main() -> None:
     # Subsystems
     vision = VisionSystem3(state, state_lock)
     navigation = NavigationSystem3(state, state_lock)
-    comms = UDPComms3(state, state_lock, pi_ip="138.38.226.147", pi_port=50001, hz=2.0)
+    comms = UDPComms3(
+        state,
+        state_lock,
+        pi_ip="138.38.226.147",
+        pi_port=50001,
+        pi_state_port=50003,
+        hz=2.0,
+    )
     manual = ManualController3(state, state_lock)
 
     # GUI (Tk mainloop lives here) 
