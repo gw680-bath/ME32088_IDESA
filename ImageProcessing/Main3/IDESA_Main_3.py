@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from threading import Lock
 
-from IDESA_GUI_3 import IDESAGuiApp3
+from ME32088_IDESA.ImageProcessing.Main3.IDESA_GUI_3 import IDESAGuiApp3
 from IDESA_Vision_3 import VisionSystem3
 from IDESA_Navigation_3 import NavigationSystem3
 from IDESA_Manual_3 import ManualController3
