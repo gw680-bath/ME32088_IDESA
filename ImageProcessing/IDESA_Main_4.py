@@ -31,6 +31,8 @@ class IDESAState4:
     control_mode: str = "AUTOMATIC"  # "AUTOMATIC" or "MANUAL"
     auto_sub_mode: str = "MISSION"  # "MISSION" or "RECOVERY"
     estop_pressed: bool = False
+    estop_on_value: float = 1.0
+    estop_off_value: float = 0.0
 
     # Encoder reset pulse (sent on cmd UDP for exactly 1 comms-cycle)
     reset_pulse_cycles: int = 0
@@ -79,10 +81,11 @@ def main() -> None:
 
     # Subsystems
     # ---- User-tweakable config (keep it simple for demo) ----
+    #PI_IP = "138.38.226.147"
     PI_IP = "138.38.226.147"
     CMD_PORT = 50001
     STATUS_PORT = 50003
-    SEND_HZ = 2.0
+    SEND_HZ = 1
 
     # Camera settings (set camera_index=0 for laptop webcam, 1 for USB camera, etc.)
     CAMERA_INDEX = 0
@@ -90,7 +93,16 @@ def main() -> None:
 
     vision = VisionSystem4(state, state_lock, camera_index=CAMERA_INDEX, preferred_res=CAMERA_RESOLUTION)
     navigation = NavigationSystem4(state, state_lock)
-    comms = UDPComms4(state, state_lock, pi_ip=PI_IP, cmd_port=CMD_PORT, status_port=STATUS_PORT, hz=SEND_HZ)
+    LOG_UDP = True  # Print every packet to the terminal for debugging
+    comms = UDPComms4(
+        state,
+        state_lock,
+        pi_ip=PI_IP,
+        cmd_port=CMD_PORT,
+        status_port=STATUS_PORT,
+        hz=SEND_HZ,
+        log_packets=LOG_UDP,
+    )
     manual = ManualController4(state, state_lock)
 
     # GUI (Tk mainloop lives here) 
@@ -117,19 +129,15 @@ def main() -> None:
             mode = "MANUAL" if mode_raw == "MANUAL" else "AUTOMATIC"
             auto_sub_raw = str(getattr(state, "auto_sub_mode", "MISSION")).upper()
             auto_sub_mode = "RECOVERY" if auto_sub_raw == "RECOVERY" else "MISSION"
-            robot_visible = bool(state.robot_visible)
-
             # Control-state flag logic (pure status value sent on UDP 50003).
             manual_active = mode == "MANUAL"
             auto_mission_active = mode == "AUTOMATIC" and auto_sub_mode == "MISSION"
 
-            if not robot_visible:
+            if manual_active or auto_mission_active:
                 state.cmd_state_flag = 0.0
-            elif manual_active or auto_mission_active:
-                state.cmd_state_flag = 1.0
             else:
-                # Recovery mode and any non-recognised auto states map to the safety value 0.
-                state.cmd_state_flag = 0.0
+                # Recovery, stopped, or any other condition should advertise 1.
+                state.cmd_state_flag = 1.0
 
             # E-stop always forces commanded motion to zero.
             if state.estop_pressed:
