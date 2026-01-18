@@ -81,11 +81,10 @@ def main() -> None:
 
     # Subsystems
     # ---- User-tweakable config (keep it simple for demo) ----
-    #PI_IP = "138.38.226.147"
     PI_IP = "138.38.226.147"
     CMD_PORT = 50001
     STATUS_PORT = 50003
-    SEND_HZ = 1
+    SEND_HZ = 2
 
     # Camera settings (set camera_index=0 for laptop webcam, 1 for USB camera, etc.)
     CAMERA_INDEX = 0

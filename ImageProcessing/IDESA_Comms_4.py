@@ -79,19 +79,28 @@ class UDPComms4:
             if reset_cycles > 0:
                 dist = reset_dist
                 ang = 0.0
+                should_send = True
                 # Consume exactly one cycle here (tied to the comms send rate).
                 try:
                     self.state.reset_pulse_cycles = max(0, reset_cycles - 1)
                 except Exception:
                     pass
             else:
-                dist = float(getattr(self.state, "cmd_distance_mm", 0.0)) if enabled else 0.0
-                ang = float(getattr(self.state, "cmd_angle_deg", 0.0)) if enabled else 0.0
+                should_send = enabled
+                if enabled:
+                    dist = float(getattr(self.state, "cmd_distance_mm", 0.0))
+                    ang = float(getattr(self.state, "cmd_angle_deg", 0.0))
+                else:
+                    dist = 0.0
+                    ang = 0.0
             state_flag = float(getattr(self.state, "cmd_state_flag", 0.0))
             estop_pressed = bool(getattr(self.state, "estop_pressed", False))
             estop_on_value = float(getattr(self.state, "estop_on_value", 1.0))
             estop_off_value = float(getattr(self.state, "estop_off_value", 0.0))
             estop_flag = estop_on_value if estop_pressed else estop_off_value
+
+        if not should_send:
+            return
 
         self.ensure_sockets()
         self._send_cmd(dist, ang)
