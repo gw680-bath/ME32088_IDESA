@@ -98,12 +98,13 @@ class IDESAMissionControl4(BaseTk):
         mode_frame.pack(fill=tk.X, padx=8, pady=(8, 6))
         ttk.Label(mode_frame, text="Control mode").pack(anchor="w")
 
-        initial_mode = "AUTO" if str(getattr(self.state, "control_mode", "AUTO")).upper() == "AUTO" else "MANUAL"
+        initial_mode_raw = str(getattr(self.state, "control_mode", "AUTOMATIC")).upper()
+        initial_mode = "AUTOMATIC" if initial_mode_raw in {"AUTO", "AUTOMATIC"} else "MANUAL"
         self._mode_var = tk.StringVar(value=initial_mode)
         ttk.Radiobutton(
             mode_frame,
-            text="Autonomous",
-            value="AUTO",
+            text="Automatic",
+            value="AUTOMATIC",
             variable=self._mode_var,
             command=self._on_mode,
         ).pack(side=tk.LEFT, padx=(0, 10))
@@ -115,10 +116,30 @@ class IDESAMissionControl4(BaseTk):
             command=self._on_mode,
         ).pack(side=tk.LEFT)
 
+        # Automatic sub-mode selection
+        sub_frame = ttk.Frame(controls)
+        sub_frame.pack(fill=tk.X, padx=8, pady=(0, 6))
+        ttk.Label(sub_frame, text="Automatic sub-mode").pack(anchor="w")
+
+        auto_sub_raw = str(getattr(self.state, "auto_sub_mode", "MISSION")).upper()
+        initial_auto_sub = "RECOVERY" if auto_sub_raw == "RECOVERY" else "MISSION"
+        self._auto_sub_var = tk.StringVar(value=initial_auto_sub)
+        self._auto_sub_buttons: list[ttk.Radiobutton] = []
+        for text, value in (("Mission", "MISSION"), ("Recovery", "RECOVERY")):
+            btn = ttk.Radiobutton(
+                sub_frame,
+                text=text,
+                value=value,
+                variable=self._auto_sub_var,
+                command=self._on_auto_sub_mode,
+            )
+            btn.pack(side=tk.LEFT, padx=(0, 10))
+            self._auto_sub_buttons.append(btn)
+
         # (Optional placeholder for extra autonomous options)
         self._auto_hint = ttk.Label(
             controls,
-            text="Autonomous = Mission mode (vision)\nManual = arrow keys (Up/Left/Right)",
+            text="Automatic Mission = vision targets\nAutomatic Recovery = safe/manual override\nManual = arrow keys (Up/Left/Right)",
             justify="left",
         )
         self._auto_hint.pack(fill=tk.X, padx=8, pady=(0, 8))
@@ -163,6 +184,7 @@ class IDESAMissionControl4(BaseTk):
             ("Cmd distance [mm]", "distance_mm"),
             ("Cmd angle [deg]", "angle_deg"),
             ("Mode", "mode"),
+            ("Auto sub-mode", "auto_sub"),
             ("E-Stop", "estop"),
             ("Sending enabled", "sending"),
         ]
@@ -183,6 +205,7 @@ class IDESAMissionControl4(BaseTk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(self._poll_ms, self._refresh)
+        self._update_auto_sub_controls()
 
     # -------------------
     # Internal helpers
@@ -191,6 +214,14 @@ class IDESAMissionControl4(BaseTk):
         with self.lock:
             # Only needs one cycle.
             self.state.reset_pulse_cycles = 1
+
+    def _update_auto_sub_controls(self) -> None:
+        enabled = self._mode_var.get().upper() == "AUTOMATIC"
+        for btn in self._auto_sub_buttons:
+            if enabled:
+                btn.state(["!disabled"])
+            else:
+                btn.state(["disabled"])
 
     # -------------------
     # Button callbacks
@@ -245,9 +276,18 @@ class IDESAMissionControl4(BaseTk):
     # -------------------
     def _on_mode(self) -> None:
         new_mode = self._mode_var.get().upper()
+        new_mode = "AUTOMATIC" if new_mode in {"AUTO", "AUTOMATIC"} else "MANUAL"
         with self.lock:
             self.state.control_mode = new_mode
         # Mode change counts as a UI button press (encoder reset pulse)
+        self._arm_encoder_reset_pulse()
+        self._update_auto_sub_controls()
+
+    def _on_auto_sub_mode(self) -> None:
+        new_sub = self._auto_sub_var.get().upper()
+        new_sub = "RECOVERY" if new_sub == "RECOVERY" else "MISSION"
+        with self.lock:
+            self.state.auto_sub_mode = new_sub
         self._arm_encoder_reset_pulse()
 
     def _on_targets(self) -> None:
@@ -292,7 +332,8 @@ class IDESAMissionControl4(BaseTk):
 
             cmd_dist = float(getattr(self.state, "cmd_distance_mm", 0.0))
             cmd_ang = float(getattr(self.state, "cmd_angle_deg", 0.0))
-            mode = str(getattr(self.state, "control_mode", "AUTO")).upper()
+            mode = str(getattr(self.state, "control_mode", "AUTOMATIC")).upper()
+            auto_sub_mode = str(getattr(self.state, "auto_sub_mode", "MISSION")).upper()
             sending = bool(getattr(self.state, "sending_enabled", False))
             estop = bool(getattr(self.state, "estop_pressed", False))
 
@@ -308,12 +349,20 @@ class IDESAMissionControl4(BaseTk):
                 display_dist = last_manual_dist
                 display_ang = last_manual_ang
 
+        auto_mode_active = mode in {"AUTO", "AUTOMATIC"}
+        mode_text = "Automatic" if auto_mode_active else "Manual"
+        if auto_mode_active:
+            auto_sub_text = "Mission" if auto_sub_mode == "MISSION" else "Recovery"
+        else:
+            auto_sub_text = "-"
+
         self._labels["robot_visible"].configure(text="YES" if robot_visible else "NO")
         self._labels["target_visible"].configure(text="YES" if active_visible else "NO")
         self._labels["active_target_id"].configure(text=str(active_id) if active_id is not None else "-")
         self._labels["distance_mm"].configure(text=f"{display_dist:.1f}")
         self._labels["angle_deg"].configure(text=f"{display_ang:.1f}")
-        self._labels["mode"].configure(text="Autonomous" if mode == "AUTO" else "Manual")
+        self._labels["mode"].configure(text=mode_text)
+        self._labels["auto_sub"].configure(text=auto_sub_text)
         self._labels["estop"].configure(text="PRESSED" if estop else "OK")
         self._labels["sending"].configure(text="YES" if sending else "NO")
 

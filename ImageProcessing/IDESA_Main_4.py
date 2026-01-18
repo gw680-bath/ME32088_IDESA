@@ -28,16 +28,13 @@ class IDESAState4:
     # GUI toggles
     camera_on: bool = False
     sending_enabled: bool = False  # Start/Stop controls UDP send
-    control_mode: str = "AUTO"  # "AUTO" or "MANUAL"
+    control_mode: str = "AUTOMATIC"  # "AUTOMATIC" or "MANUAL"
+    auto_sub_mode: str = "MISSION"  # "MISSION" or "RECOVERY"
     estop_pressed: bool = False
 
     # Encoder reset pulse (sent on cmd UDP for exactly 1 comms-cycle)
     reset_pulse_cycles: int = 0
     encoder_reset_distance_mm: float = 10.0
-
-    # Status packet tuning
-    estop_on_value: float = 1.0
-    estop_off_value: float = 0.0
 
     # Targets
     selected_targets: list[int] = field(default_factory=lambda: [2, 3])
@@ -84,7 +81,7 @@ def main() -> None:
     # ---- User-tweakable config (keep it simple for demo) ----
     PI_IP = "138.38.226.147"
     CMD_PORT = 50001
-    STATUS_PORT = 50002
+    STATUS_PORT = 50003
     SEND_HZ = 2.0
 
     # Camera settings (set camera_index=0 for laptop webcam, 1 for USB camera, etc.)
@@ -116,10 +113,23 @@ def main() -> None:
 
         # Arbitration: pick what gets sent
         with state_lock:
-            mode = str(state.control_mode).upper()
-            # State flag: 0 by default, 1 when "in a control mode" (Manual or Autonomous Mission).
-            # Practically: set to 1 when Start is enabled and E-stop is NOT pressed.
-            state.cmd_state_flag = 1.0 if (state.sending_enabled and not state.estop_pressed and mode in {"AUTO", "MANUAL"}) else 0.0
+            mode_raw = str(state.control_mode).upper()
+            mode = "MANUAL" if mode_raw == "MANUAL" else "AUTOMATIC"
+            auto_sub_raw = str(getattr(state, "auto_sub_mode", "MISSION")).upper()
+            auto_sub_mode = "RECOVERY" if auto_sub_raw == "RECOVERY" else "MISSION"
+            robot_visible = bool(state.robot_visible)
+
+            # Control-state flag logic (pure status value sent on UDP 50003).
+            manual_active = mode == "MANUAL"
+            auto_mission_active = mode == "AUTOMATIC" and auto_sub_mode == "MISSION"
+
+            if not robot_visible:
+                state.cmd_state_flag = 0.0
+            elif manual_active or auto_mission_active:
+                state.cmd_state_flag = 1.0
+            else:
+                # Recovery mode and any non-recognised auto states map to the safety value 0.
+                state.cmd_state_flag = 0.0
 
             # E-stop always forces commanded motion to zero.
             if state.estop_pressed:
@@ -173,7 +183,6 @@ def _stop_sending(state: IDESAState4, lock: Lock, comms: UDPComms4) -> None:
         state.sending_enabled = False
         state.cmd_distance_mm = 0.0
         state.cmd_angle_deg = 0.0
-        state.cmd_state_flag = 0.0
     comms.send_zeros_burst()
 
 
@@ -187,9 +196,11 @@ def _camera_off_all(state: IDESAState4, lock: Lock, vision: VisionSystem4, comms
         state.camera_on = False
         state.sending_enabled = False
         state.reset_pulse_cycles = 0
+        state.robot_visible = False
+        state.robot_xy_mm = None
+        state.robot_last_seen = 0.0
         state.cmd_distance_mm = 0.0
         state.cmd_angle_deg = 0.0
-        state.cmd_state_flag = 0.0
     comms.send_zeros_burst()
 
 

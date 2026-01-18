@@ -30,7 +30,7 @@ class ManualController4:
     def _arm_pulse(self, dist_mm: float, ang_deg: float) -> None:
         with self.lock:
             # Only generate pulses when in MANUAL mode
-            if str(getattr(self.state, "control_mode", "AUTO")).upper() != "MANUAL":
+            if str(getattr(self.state, "control_mode", "AUTOMATIC")).upper() != "MANUAL":
                 return
             # Only meaningful when Start is enabled
             if not bool(getattr(self.state, "sending_enabled", False)):

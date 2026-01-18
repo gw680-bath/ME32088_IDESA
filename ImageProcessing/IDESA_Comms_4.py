@@ -3,8 +3,8 @@
 UDP comms for the demo build.
 
 Packets:
-  - Command (port 50001): (distance_mm, angle_deg) as 2 x float32, '<2f'
-  - Status (default port 50002): (state_flag, estop_flag) as 2 x float32, '<2f'
+    - Command (port 50001): (distance_mm, angle_deg) as 2 x float32, '<2f'
+    - Status (port 50003): control state flag as 1 x float32, '<f'
 
 Behaviour:
   - Both packets are sent at the same refresh rate (hz).
@@ -27,7 +27,7 @@ class UDPComms4:
         state_lock: Lock,
         pi_ip: str,
         cmd_port: int = 50001,
-        status_port: int = 50002,
+        status_port: int = 50003,
         hz: float = 2.0,
     ) -> None:
         self.state = state
@@ -86,16 +86,10 @@ class UDPComms4:
                 dist = float(getattr(self.state, "cmd_distance_mm", 0.0)) if enabled else 0.0
                 ang = float(getattr(self.state, "cmd_angle_deg", 0.0)) if enabled else 0.0
             state_flag = float(getattr(self.state, "cmd_state_flag", 0.0))
-            estop_pressed = bool(getattr(self.state, "estop_pressed", False))
-
-            # Allow tuning what number gets sent (e.g., 1 or 255) without touching Simulink.
-            estop_on_value = float(getattr(self.state, "estop_on_value", 1.0))
-            estop_off_value = float(getattr(self.state, "estop_off_value", 0.0))
-            estop_val = estop_on_value if estop_pressed else estop_off_value
 
         self.ensure_sockets()
         self._send_cmd(dist, ang)
-        self._send_status(state_flag, estop_val)
+        self._send_status(state_flag)
 
     def send_zeros_burst(self, count: int = 4, spacing_s: float = 0.03) -> None:
         """Short burst helps Simulink see a clean stop."""
@@ -104,14 +98,10 @@ class UDPComms4:
         for _ in range(count):
             with self.lock:
                 state_flag = float(getattr(self.state, "cmd_state_flag", 0.0))
-                estop_pressed = bool(getattr(self.state, "estop_pressed", False))
-                estop_on_value = float(getattr(self.state, "estop_on_value", 1.0))
-                estop_off_value = float(getattr(self.state, "estop_off_value", 0.0))
-                estop_val = estop_on_value if estop_pressed else estop_off_value
 
             self.ensure_sockets()
             self._send_cmd(0.0, 0.0)
-            self._send_status(state_flag, estop_val)
+            self._send_status(state_flag)
             time.sleep(spacing_s)
 
     def _send_cmd(self, dist_mm: float, ang_deg: float) -> None:
@@ -122,8 +112,8 @@ class UDPComms4:
         except Exception:
             pass
 
-    def _send_status(self, state_flag: float, estop_val: float) -> None:
-        payload = struct.pack("<2f", float(state_flag), float(estop_val))
+    def _send_status(self, state_flag: float) -> None:
+        payload = struct.pack("<f", float(state_flag))
         try:
             assert self._status_sock is not None
             self._status_sock.sendto(payload, (self.pi_ip, self.status_port))
