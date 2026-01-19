@@ -165,9 +165,9 @@ def main() -> None:
         comms.tick(now)
 
         # Schedule next tick
-        app.after(50, tick)  # 20 Hz main loop
+        app.after(25, tick)  # 20 Hz main loop
 
-    app.after(50, tick)
+    app.after(25, tick)
     app.mainloop()
 
     # On GUI close
