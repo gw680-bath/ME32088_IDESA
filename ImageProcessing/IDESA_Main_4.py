@@ -86,8 +86,10 @@ def main() -> None:
     STATUS_PORT = 50003
     SEND_HZ = 2
 
-    # Camera settings (set camera_index=0 for laptop webcam, 1 for USB camera, etc.)
-    CAMERA_INDEX = 0
+    # Camera settings
+    # NOTE (Windows): camera indices are often unstable; index=1 is NOT reliably the USB camera.
+    # Use CAMERA_INDEX="AUTO" to try 1..6 first (likely USB/external), then fall back to 0.
+    CAMERA_INDEX = 1
     CAMERA_RESOLUTION = (1280, 720)
 
     vision = VisionSystem4(state, state_lock, camera_index=CAMERA_INDEX, preferred_res=CAMERA_RESOLUTION)
