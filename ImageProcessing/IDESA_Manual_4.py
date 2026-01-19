@@ -1,9 +1,9 @@
 """IDESA_Manual_4.py
 
 Manual arrow-key controller (one-shot pulses):
-  - Up:    distance=200mm, angle=0
-  - Left:  distance=0mm,   angle=+90
-  - Right: distance=0mm,   angle=-90
+  - Up:    distance=2000mm, angle=0
+  - Left:  distance=10mm,   angle=+90
+  - Right: distance=10mm,   angle=-90
 
 After a key press, Main consumes the pulse for exactly one command-cycle,
 then reverts to sending zeros.
@@ -48,10 +48,10 @@ class ManualController4:
             self.state.last_manual_timestamp = now
 
     def _on_up(self, _event) -> None:
-        self._arm_pulse(200.0, 0.0)
+        self._arm_pulse(2000.0, 0.0)
 
     def _on_left(self, _event) -> None:
-        self._arm_pulse(0.0, +90.0)
+        self._arm_pulse(10.0, -90.0)
 
     def _on_right(self, _event) -> None:
-        self._arm_pulse(0.0, -90.0)
+        self._arm_pulse(10.0, +90.0)
