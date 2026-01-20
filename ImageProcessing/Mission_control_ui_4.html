@@ -100,6 +100,54 @@
             color: #ff8a8a;
         }
         button:active { transform: scale(0.98); }
+        button.estop-button {
+            position: relative;
+            width: 170px;
+            height: 170px;
+            flex: 0 0 170px;
+            border-radius: 50%;
+            border: none;
+            padding: 0;
+            background: transparent;
+            color: #2d0606;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.55);
+        }
+        button.estop-button::before {
+            content: "";
+            position: absolute;
+            inset: 6px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #ffeeb8, #ffc400 60%, #c57800 100%);
+            box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35);
+        }
+        button.estop-button::after {
+            content: "";
+            position: absolute;
+            inset: 22px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #ff8f8f, #d31515 55%, #5c0303 100%);
+            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.45);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        button.estop-button:active::after {
+            transform: translateY(2px);
+            box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.55);
+        }
+        .estop-button .estop-label {
+            position: relative;
+            z-index: 2;
+            display: block;
+            text-align: center;
+            pointer-events: none;
+            font-size: 0.9rem;
+            margin-top: 65px;
+            letter-spacing: 0.25rem;
+            color: #ffe0c7;
+        }
         .status-bar {
             margin-top: 24px;
             padding: 16px;
@@ -186,6 +234,11 @@
         @media (max-width: 720px) {
             body { padding: 20px 16px; }
             .manual-grid { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); }
+            button.estop-button {
+                width: 130px;
+                height: 130px;
+                flex-basis: 130px;
+            }
         }
     </style>
 </head>
@@ -221,7 +274,9 @@
                 <button data-action="camera_off">Camera Off</button>
                 <button class="accent" data-action="start">Start</button>
                 <button data-action="stop">Stop</button>
-                <button class="danger" data-action="estop">E-Stop</button>
+                <button class="estop-button" data-action="estop">
+                    <span class="estop-label">EMERGENCY STOP</span>
+                </button>
                 <button data-action="reset_estop">Reset E-Stop</button>
             </div>
 
