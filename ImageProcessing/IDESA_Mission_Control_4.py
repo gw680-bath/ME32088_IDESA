@@ -478,7 +478,7 @@ class IDESAMissionControl4:
             "cmd_distance_mm": round(display_dist, 2),
             "cmd_angle_deg": round(display_ang, 2),
             "mode": "Automatic" if auto_active else "Manual",
-            "auto_sub_mode": "Mission" if auto_sub == "MISSION" else "Recovery",
+            "auto_sub_mode": "Mission" if auto_sub == "MISSION" else "Recovery Rover",
             "estop": "PRESSED" if estop else "OK",
             "sending": sending,
             "camera_on": camera_on,

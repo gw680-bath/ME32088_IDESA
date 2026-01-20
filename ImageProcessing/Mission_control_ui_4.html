@@ -131,16 +131,16 @@
             background: rgba(255, 255, 255, 0.02);
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 12px;
-            padding: 12px;
+            padding: 10px;
         }
         .telemetry-card .label {
             color: var(--text-muted);
-            font-size: 0.75rem;
-            letter-spacing: 0.8px;
+            font-size: 0.68rem;
+            letter-spacing: 0.7px;
         }
         .telemetry-card .value {
-            font-size: 1.3rem;
-            margin-top: 4px;
+            font-size: 1.05rem;
+            margin-top: 2px;
             font-family: 'Orbitron', sans-serif;
         }
         .targets {
@@ -234,13 +234,13 @@
             <h3>Automatic Sub-mode</h3>
             <div class="controls-group" id="auto-sub-group">
                 <button class="toggle" data-auto="MISSION">Mission</button>
-                <button class="toggle" data-auto="RECOVERY">Recovery</button>
+                <button class="toggle" data-auto="RECOVERY">Recovery Rover</button>
             </div>
 
             <h3>Switch Radius</h3>
             <div class="radius-control">
                 <span>Current: <strong id="radius-value">--</strong> mm</span>
-                <input type="range" id="radius-slider" min="10" max="5000" step="10" value="150" />
+                <input type="range" id="radius-slider" min="10" max="300" step="10" value="150" />
             </div>
         </article>
 
@@ -260,9 +260,9 @@
                 <div></div>
                 <button data-manual="UP">Thrust ↑</button>
                 <div></div>
-                <button data-manual="LEFT">Yaw ↺</button>
+                <button data-manual="LEFT">Left ←</button>
                 <div></div>
-                <button data-manual="RIGHT">Yaw ↻</button>
+                <button data-manual="RIGHT">Right →</button>
             </div>
             <p class="hero-subtitle" style="margin-top:12px;">Arrow keys also trigger manual pulses when the page is focused.</p>
         </article>
@@ -338,6 +338,10 @@
             sendAction('targets', { selected });
         }
 
+        function triggerManualPulse(direction) {
+            sendAction('manual_pulse', { direction });
+        }
+
         function wireButtons() {
             document.querySelectorAll('[data-action]').forEach(btn => {
                 btn.addEventListener('click', () => sendAction(btn.getAttribute('data-action')));
@@ -349,12 +353,12 @@
                 btn.addEventListener('click', () => sendAction('auto_sub', { value: btn.getAttribute('data-auto') }));
             });
             document.querySelectorAll('[data-manual]').forEach(btn => {
-                btn.addEventListener('click', () => sendAction('manual_pulse', { direction: btn.getAttribute('data-manual') }));
+                btn.addEventListener('click', () => triggerManualPulse(btn.getAttribute('data-manual')));
             });
             document.addEventListener('keydown', evt => {
-                if (evt.key === 'ArrowUp') sendAction('manual_pulse', { direction: 'UP' });
-                if (evt.key === 'ArrowLeft') sendAction('manual_pulse', { direction: 'LEFT' });
-                if (evt.key === 'ArrowRight') sendAction('manual_pulse', { direction: 'RIGHT' });
+                if (evt.key === 'ArrowUp') triggerManualPulse('UP');
+                if (evt.key === 'ArrowLeft') triggerManualPulse('LEFT');
+                if (evt.key === 'ArrowRight') triggerManualPulse('RIGHT');
             });
             radiusSlider.addEventListener('input', () => {
                 radiusValue.textContent = radiusSlider.value;
