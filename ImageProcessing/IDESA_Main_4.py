@@ -74,6 +74,9 @@ class IDESAState4:
     cmd_angle_deg: float = 0.0
     cmd_state_flag: float = 0.0
 
+    # Internal automation helpers
+    lost_robot_recovery_latched: bool = False
+
 
 def main() -> None:
     state = IDESAState4()
@@ -128,6 +131,27 @@ def main() -> None:
         with state_lock:
             mode_raw = str(state.control_mode).upper()
             mode = "MANUAL" if mode_raw == "MANUAL" else "AUTOMATIC"
+            auto_sub_raw = str(getattr(state, "auto_sub_mode", "MISSION")).upper()
+            auto_sub_mode = "RECOVERY" if auto_sub_raw == "RECOVERY" else "MISSION"
+
+            # Lost-robot auto fallback: switch to Recovery Rover after 10 s without vision.
+            if mode == "AUTOMATIC" and auto_sub_mode == "MISSION" and state.sending_enabled and not state.estop_pressed:
+                last_seen = float(getattr(state, "robot_last_seen", 0.0))
+                if last_seen > 0.0:
+                    if (now - last_seen) >= 10.0:
+                        if not state.lost_robot_recovery_latched:
+                            state.auto_sub_mode = "RECOVERY"
+                            auto_sub_mode = "RECOVERY"
+                            state.reset_pulse_cycles = max(1, int(getattr(state, "reset_pulse_cycles", 0)) or 1)
+                            state.lost_robot_recovery_latched = True
+                    else:
+                        state.lost_robot_recovery_latched = False
+                else:
+                    state.lost_robot_recovery_latched = False
+            else:
+                state.lost_robot_recovery_latched = False
+
+            # Refresh auto_sub_mode in case the fallback adjusted it above.
             auto_sub_raw = str(getattr(state, "auto_sub_mode", "MISSION")).upper()
             auto_sub_mode = "RECOVERY" if auto_sub_raw == "RECOVERY" else "MISSION"
             # Control-state flag logic (pure status value sent on UDP 50003).
